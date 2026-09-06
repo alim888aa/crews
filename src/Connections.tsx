@@ -56,29 +56,58 @@ export function Setup({ state }: { state: RoomState }) {
     }
   }
   return (
-    <Empty className="min-h-full" aria-label="Connect Crews">
-      <EmptyHeader>
-        <EmptyTitle>Set up Crews</EmptyTitle>
+    <Empty
+      className="min-h-full items-start gap-8 px-10 py-10 text-left"
+      aria-label="Connect Crews"
+    >
+      <EmptyHeader className="items-start">
+        <EmptyTitle className="text-4xl font-semibold tracking-tight">
+          Set up Crews
+        </EmptyTitle>
       </EmptyHeader>
-      <EmptyContent>
-        <ol className="mb-4 flex list-decimal flex-col gap-4 pl-5 text-left">
-          <li className="pl-1">
-            <p className="font-medium">Connect Codex</p>
-            <p className="text-muted-foreground">
-              Send the setup message that opens in Codex.
-            </p>
+      <EmptyContent className="max-w-xl items-start gap-8">
+        <ol className="flex flex-col gap-4">
+          <li className="flex items-center gap-3">
+            <span
+              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
+              aria-hidden="true"
+            >
+              1
+            </span>
+            <div>
+              <p className="text-base font-medium">Connect Codex</p>
+              <p className="text-sm text-muted-foreground">
+                Send the setup message that opens in Codex.
+              </p>
+            </div>
           </li>
-          <li className="pl-1">
-            <p className="font-medium">Add your agents</p>
-            <p className="text-muted-foreground">
-              Choose existing tasks and connect each one.
-            </p>
+          <li className="flex items-center gap-3">
+            <span
+              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
+              aria-hidden="true"
+            >
+              2
+            </span>
+            <div>
+              <p className="text-base font-medium">Add your agents</p>
+              <p className="text-sm text-muted-foreground">
+                Choose existing tasks and connect each one.
+              </p>
+            </div>
           </li>
-          <li className="pl-1">
-            <p className="font-medium">Start chatting</p>
-            <p className="text-muted-foreground">
-              @mention an agent, or use @all for everyone.
-            </p>
+          <li className="flex items-center gap-3">
+            <span
+              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
+              aria-hidden="true"
+            >
+              3
+            </span>
+            <div>
+              <p className="text-base font-medium">Start chatting</p>
+              <p className="text-sm text-muted-foreground">
+                @mention an agent, or use @all for everyone.
+              </p>
+            </div>
           </li>
         </ol>
         <Button onClick={() => void connect()} disabled={opening}>
