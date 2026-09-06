@@ -12,7 +12,8 @@
     "package:mac": "npm run build && node --import tsx scripts/package-mac.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "format": "prettier --write backend shared electron scripts tests src/App.tsx src/Connections.tsx src/store.ts src/main.tsx",
-    "test:images": "esbuild tests/electron-images.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-images.mjs && electron build-tests/test-images.mjs"
+    "test:images": "esbuild tests/electron-images.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-images.mjs && electron build-tests/test-images.mjs",
+    "package:dmg": "npm run package:mac && node --import tsx scripts/dmg-mac.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -51,5 +52,10 @@
   "engines": {
     "node": ">=22.12.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alim888aa/crews.git"
+  },
+  "homepage": "https://github.com/alim888aa/crews#readme"
 }

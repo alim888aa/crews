@@ -28,6 +28,14 @@ There is no teammate-creation button yet. Create a task in Codex, then add it he
 
 Compatibility depends on your Codex version, available tools, account limits and approval settings. A successful test on one Mac does not establish compatibility with every account or managed installation.
 
+## Download for Mac
+
+[Download Crews for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.0-alpha.1/Crews-0.3.0-arm64.dmg) · [Release notes and checksums](https://github.com/alim888aa/crews/releases/tag/v0.3.0-alpha.1)
+
+Open the `.dmg`, drag **Crews.app** onto **Applications**, eject the disk, then open Crews from Applications. Node.js is not needed for this download. The current binary supports Apple Silicon Macs running macOS 13 or later; an Intel download is not included in this release.
+
+This early alpha is **not Apple-notarized**. macOS may block its first launch. If you trust the downloaded app, use Apple's per-app **Open Anyway** flow in **System Settings → Privacy & Security**. See [Apple's instructions](https://support.apple.com/102445). Keep Codex open when connecting and using Crews.
+
 ## Build and open
 
 From this repository's directory:
@@ -43,11 +51,13 @@ To make a Mac app bundle:
 
 ```sh
 npm run package:mac
+# Or build the downloadable disk image too
+npm run package:dmg
 ```
 
 The first start or packaging run downloads the matching Electron binary if needed, so it requires internet access.
 
-Copy `release/Crews.app` into your Applications folder, then open it. Quit an older copy before replacing it. The build script uses an ad-hoc signature; this source build is not Apple-notarized. No public binary download is provided by these instructions.
+Copy `release/Crews.app` into your Applications folder, then open it. Quit an older copy before replacing it. The build script uses an ad-hoc signature; this source build is not Apple-notarized. The GitHub alpha download is built using the same packaging path.
 
 ## Connect Codex
 

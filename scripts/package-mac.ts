@@ -28,6 +28,33 @@ for (const notice of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) {
   if (fs.existsSync(source)) fs.copyFileSync(source, path.join(bundle, notice))
 }
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+// Preserve dependency license notices in the distributed app, including fonts.
+const lock = JSON.parse(
+  fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'),
+)
+const notices: string[] = []
+for (const [relative, metadata] of Object.entries(lock.packages)) {
+  if (
+    !relative ||
+    !metadata ||
+    typeof metadata !== 'object' ||
+    ('dev' in metadata && metadata.dev)
+  )
+    continue
+  const directory = path.join(root, relative)
+  if (!fs.existsSync(directory)) continue
+  for (const name of fs
+    .readdirSync(directory)
+    .filter((name) => /^(licen[sc]e|copying|notice|ofl)/i.test(name))) {
+    const file = path.join(directory, name)
+    if (!fs.statSync(file).isFile()) continue
+    notices.push(`${relative}\n${name}\n\n${fs.readFileSync(file, 'utf8')}`)
+  }
+}
+fs.writeFileSync(
+  path.join(bundle, 'DEPENDENCY_NOTICES.txt'),
+  notices.join('\n\n--------------------\n\n'),
+)
 fs.writeFileSync(
   path.join(bundle, 'package.json'),
   JSON.stringify(
