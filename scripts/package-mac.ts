@@ -19,6 +19,10 @@ fs.mkdirSync(path.dirname(output), { recursive: true })
 fs.rmSync(output, { recursive: true, force: true })
 execFileSync('/usr/bin/ditto', [binary, output])
 const resources = path.join(output, 'Contents', 'Resources')
+fs.copyFileSync(
+  path.join(root, 'assets', 'crews-icon.icns'),
+  path.join(resources, 'crews-icon.icns'),
+)
 fs.rmSync(path.join(resources, 'default_app.asar'), { force: true })
 const bundle = path.join(resources, 'app')
 fs.mkdirSync(bundle, { recursive: true })
@@ -75,6 +79,7 @@ for (const [key, value] of Object.entries({
   CFBundleName: 'Crews',
   CFBundleDisplayName: 'Crews',
   CFBundleIdentifier: 'local.crews.desktop',
+  CFBundleIconFile: 'crews-icon.icns',
   CFBundleShortVersionString: pkg.version,
   CFBundleVersion: pkg.version,
 })) {
