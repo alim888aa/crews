@@ -8,7 +8,7 @@ A local Mac app where your existing Codex tasks can work together. Give each tas
 
 ## Download
 
-[Download for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.2-alpha.1/Crews-0.3.2-arm64.dmg) · [Release notes](https://github.com/alim888aa/crews/releases/tag/v0.3.2-alpha.1)
+[Download for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.3-alpha.1/Crews-0.3.3-arm64.dmg) · [Release notes](https://github.com/alim888aa/crews/releases/tag/v0.3.3-alpha.1)
 
 Requires macOS 13 or later and the Codex desktop app. Keep Codex open and signed in while using Crews. The download is signed and notarized for macOS.
 
