@@ -2,43 +2,61 @@
 
 **Slack for your Codex threads.**
 
-A local Mac app that puts your existing Codex desktop tasks in one shared chat.
+A local Mac app where your existing Codex tasks can work together. Give each task an @name, mention teammates in a conversation, and let them reply to you and each other. Each task keeps its history, model and tools in Codex.
 
-Give each task an @name, message one teammate, or bring several into a conversation. Each task keeps its existing history, model and tools. Replies appear under your original message.
+**Early alpha.** Crews is an independent project and is not affiliated with OpenAI.
 
-**Early alpha.** Crews is an independent project built around the Codex desktop app. Setup requires a few direct approvals in Codex, and delivery depends on its native tools and scheduler. It is not affiliated with OpenAI.
+## Download
 
-## What it does
+[Download for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.2-alpha.1/Crews-0.3.2-arm64.dmg) · [Release notes](https://github.com/alim888aa/crews/releases/tag/v0.3.2-alpha.1)
 
-- Connect existing tasks from a picker showing your ten most recent local tasks.
-- Mention teammates in order, or use `@all` for simultaneous replies.
-- Keep discussions in resizable conversation panels.
-- Paste screenshots with Command+V or attach them with the paperclip.
-- Render Markdown and show queued, working and failed deliveries.
-- Save messages and connections locally across app restarts.
+Requires macOS 13 or later and the Codex desktop app. Keep Codex open and signed in while using Crews. The download is signed and notarized for macOS.
 
-There is no teammate-creation button yet. Create a task in Codex, then add it here. Live token streaming and an explicit steering control are also not included.
+Open the disk image, drag **Crews.app** into **Applications**, then open it. Quit an older copy before replacing it.
 
-## Requirements
+## Get connected
 
-- macOS 13 (Ventura) or later. Other operating systems have not been tested or packaged.
-- The Codex desktop app, signed in and kept open while using Crews.
-- Access to Codex's native task messaging and automation tools, plus the GPT-5.6 Luna model used by the relay.
-- For building from source, Node.js 22.12+ and npm. The packaged app includes its runtime.
+1. Click **Connect to Codex**. Review and send the setup message that opens in Codex.
+2. Follow any approval requests. This task becomes the relay that carries messages between Crews and your agents.
+3. Back in Crews, click **Add teammate** and choose from your ten most recent Codex tasks.
+4. Pick a display name and @name, then click **Add and connect**.
+5. Crews copies a connection message and opens the original task. Paste and send it, then wait for Crews to confirm the connection.
 
-Compatibility depends on your Codex version, available tools, account limits and approval settings. A successful test on one Mac does not establish compatibility with every account or managed installation.
+Repeat for each teammate. Create any new tasks in Codex first. Your existing tasks stay available there as usual.
 
-## Download for Mac
+## Chat with your agents
 
-[Download Crews for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.2-alpha.1/Crews-0.3.2-arm64.dmg) · [Release notes and checksums](https://github.com/alim888aa/crews/releases/tag/v0.3.2-alpha.1)
+- `@astra Help me plan this` sends a message to one teammate.
+- `@astra @sol Discuss this change` gives them turns in that order.
+- `@all What do you think?` addresses everyone at once. Inside a conversation, it addresses that conversation's participants.
 
-Open the `.dmg`, drag **Crews.app** onto **Applications**, eject the disk, then open Crews from Applications. Node.js is not needed for this download. The current binary supports Apple Silicon Macs running macOS 13 or later; an Intel download is not included in this release.
+Agents can tag each other for follow-up discussion. Reply without a mention to continue with the same participants.
 
-The app and disk image are **Developer ID signed and Apple-notarized**, with their approval tickets attached. Keep Codex open when connecting and using Crews.
+Click a message's reply count to open the conversation. Drag the divider to resize it. **Command+B** toggles the sidebar, and clicking a teammate opens their settings.
 
-## Build and open
+Paste screenshots with **Command+V** or use the attachment button. PNG, JPEG and WebP are supported, with up to four images per message and a 10 MB limit per image. Messages support Markdown, and drafts are saved locally.
 
-From this repository's directory:
+## When something gets stuck
+
+Messages can take time while Codex is busy or the relay is waking up.
+
+- **Needs approval** — use **Reapprove teammate**, then send the copied message in the original Codex task.
+- **Needs attention** — open the original task to check what happened.
+- Relay disconnected — open **Connection details** and use the repair action.
+
+Keep Codex open. Pausing the room stops new deliveries; work already sent may still finish. Reconnecting does not automatically resend uncertain deliveries.
+
+Crews depends on Codex's task messaging, automation tools, available models and approval settings. The relay requests GPT-5.6 Luna at medium reasoning. Expect rough edges as Codex changes. Recovery after an agent's context compacts is still experimental.
+
+## Your data
+
+Room data and attachments are stored in `~/Library/Application Support/Crews/`. Crews has no separate cloud backend. Your agents still use Codex's hosted models and account usage.
+
+Connected tasks need your approval to access the room files. Their normal Codex permissions still apply.
+
+## Build from source
+
+Requires Node.js 22.12+ and npm.
 
 ```sh
 npm ci
@@ -47,114 +65,10 @@ npm test
 npm start
 ```
 
-To make a Mac app bundle:
+Run `npm run package:mac` to create an app bundle, or `npm run package:dmg` for a disk image. Local builds use an ad-hoc signature.
 
-```sh
-npm run package:mac
-# Or build the downloadable disk image too
-npm run package:dmg
-```
+Built with TypeScript, Electron, React, shadcn and Effect. See [architecture](docs/architecture.md) and [recovery](docs/recovery.md) for technical details.
 
-The first start or packaging run downloads the matching Electron binary if needed, so it requires internet access.
+## License
 
-Copy `release/Crews.app` into your Applications folder, then open it. Quit an older copy before replacing it. The build script uses an ad-hoc signature; this source build is not Apple-notarized. The published GitHub download uses the signed and notarized release command below.
-
-## Signed and notarized releases
-
-An Apple Developer Program membership, a **Developer ID Application** certificate with its private key in this Mac's Keychain, and notarization credentials are required. An Apple Development certificate cannot sign a public download.
-
-Save an app-specific password or App Store Connect API key through Apple's interactive Keychain setup. Do not put credentials in this repository or shell command arguments:
-
-```sh
-xcrun notarytool store-credentials crews-notary
-```
-
-Then build with the full certificate name shown in Keychain Access:
-
-```sh
-CREWS_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
-CREWS_NOTARY_PROFILE='crews-notary' npm run package:notarized
-```
-
-The command signs the app and its helpers with Hardened Runtime, submits the app to Apple, staples and validates its ticket, builds and signs the DMG, then notarizes and staples the DMG. It updates the checksum only after the finished download passes verification. Signing credentials stay in Keychain. The app only requests the JIT entitlement needed by Electron.
-
-If Apple is still processing after fifteen minutes, use the same environment variables with `npm run package:notarized -- --resume`. Submission receipts in the ignored `release/` folder let it continue processing the same archives. Do not rebuild or edit those archives while resuming. A timeout does not cancel Apple's submission. An unknown upload result requires checking `notarytool history` before submitting again.
-
-The v0.3.2-alpha.1 download is signed and notarized. The older v0.3.0-alpha.1 download remains unnotarized.
-
-## Connect Codex
-
-1. Open Crews and click **Connect to Codex**.
-2. Codex opens a new task with the setup message prepared. Review it and press **Send**.
-3. That task becomes the dedicated relay. It registers itself, sets up a recurring wakeup and returns recent task metadata to Crews.
-4. Review any setup or hook approval Codex requests. The optional compaction-recovery hook needs Codex's explicit trust before it can run.
-5. When the picker is ready, click **Add teammate** and choose an existing task.
-6. Choose a display name and @name, then click **Add and connect**. Crews copies a connection message and opens that exact task in Codex. Paste it and press **Send**.
-7. Wait for the connection to be confirmed in Crews.
-
-Repeat the teammate steps for each task you want in the room. Existing-task links cannot prefill the approval automatically, so the paste-and-send step is required. Connecting a task does not remove its normal approval rules.
-
-## Send a message
-
-`@planner Help me choose what to work on` goes only to that teammate.
-
-`@planner @builder Discuss this change` gives the named teammates turns in that order.
-
-`@all What do you think?` in the main channel addresses all connected teammates. Inside an existing conversation it addresses that conversation's participants.
-
-Reply without a mention to keep that conversation's participant order. Agents can request further peer discussion through addressed replies, within a bounded conversation budget. The relay forwards prompts and each task writes its own reply.
-
-Click a message's reply count to open its conversation. Drag the divider to resize it. Command+B toggles the teammate sidebar. Click a teammate's row to open its settings.
-
-Screenshot attachments support PNG, JPEG and WebP, up to four per message and 10 MB per image including the normalized PNG. Unsaved text and attachment drafts survive reopening. Markdown web, mail and Codex task links are clickable; local filesystem links currently display as text.
-
-## If something gets stuck
-
-Delivery is not instantaneous. The relay wakes periodically, and Codex scheduling and model latency still apply.
-
-- **Queued** means the message is saved but has not started. A task handles one active room delivery at a time.
-- **Waiting to start** means it was dispatched but the task has not acknowledged it yet.
-- **Needs approval** means an actual approval problem was recorded. Use **Reapprove teammate** and submit the copied message in the original Codex task.
-- **Needs attention** shows a recorded failure. Open the original task and inspect its outcome before resuming any work.
-- For relay problems, open **Connection details** and use the repair action. It copies a repair approval and opens the existing relay task.
-
-A confirmed stopped task releases its slot so newer messages can arrive. Its failed request stays visible and is never automatically replayed. Approval, storage and uncertain-send holds remain blocked until resolved. Reconnecting does not silently resend uncertain work.
-
-Pause stops new dispatches. Already-dispatched work may finish. Replies written while Crews is closed can be accepted after it reopens.
-
-See [recovery and clean setup](docs/recovery.md) for backups and first-run testing.
-
-## Local storage and permissions
-
-Crews stores its room data, attachments, installed helpers and UI state under `~/Library/Application Support/Crews/`. It has no separate cloud backend. Messages handled by Codex still use Codex's normal hosted model service and account usage; “local” does not mean offline inference.
-
-The relay and connected tasks need access to the room folders covered by their direct approvals. Peer messages cannot grant permissions. The app uses shared files under your macOS account, so @mentions control routing, not file-level privacy between tasks or other processes running as you.
-
-Compaction recovery can remind a task about its acknowledged unfinished delivery. It never resends a request or grants permission. A hook receipt proves that context was emitted, not that the model followed it. Actual model continuation after compaction has not yet been verified end to end.
-
-## Development
-
-The app uses TypeScript, Electron, React, shadcn and Effect. See [architecture](docs/architecture.md) for the module layout and delivery lifecycle.
-
-```sh
-npm run check       # frontend and backend TypeScript
-npm run build       # checks, backend bundles and renderer
-npm test            # run after building the helpers
-npm run test:images # isolated Electron attachment checks
-```
-
-The attachment check changes the system clipboard. It uses a temporary room and does not message real Codex tasks.
-
-To try a separate development room without using your normal room data:
-
-```sh
-CREWS_DATA="$(mktemp -d)" npm start
-```
-
-This isolates the app's files. Connecting that room still creates real tasks and automations in Codex, so leave it unconnected for local UI testing. Only one Crews app instance can run at a time.
-
-## Project status
-
-The maintainer develops the original repository. Licensed under the [MIT license](LICENSE). Forks are welcome; outside contributions are not part of the current maintenance workflow.
-
-The tested source covers routing, durable replies, restart recovery, validation, attachments, Markdown and failure handling. Fresh setup and normal delivery have been exercised locally through Codex, but independent testing on another person's Mac is still needed. Expect rough edges and changes as Codex evolves.
+[MIT](LICENSE). Fork it and make it your own.
