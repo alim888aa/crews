@@ -58,9 +58,29 @@ export function Setup({ state }: { state: RoomState }) {
   return (
     <Empty className="min-h-full" aria-label="Connect Crews">
       <EmptyHeader>
-        <EmptyTitle>Chat with your Codex agents.</EmptyTitle>
+        <EmptyTitle>Set up Crews</EmptyTitle>
       </EmptyHeader>
       <EmptyContent>
+        <ol className="mb-4 flex list-decimal flex-col gap-4 pl-5 text-left">
+          <li className="pl-1">
+            <p className="font-medium">Connect Codex</p>
+            <p className="text-muted-foreground">
+              Send the setup message that opens in Codex.
+            </p>
+          </li>
+          <li className="pl-1">
+            <p className="font-medium">Add your agents</p>
+            <p className="text-muted-foreground">
+              Choose existing tasks and connect each one.
+            </p>
+          </li>
+          <li className="pl-1">
+            <p className="font-medium">Start chatting</p>
+            <p className="text-muted-foreground">
+              @mention an agent, or use @all for everyone.
+            </p>
+          </li>
+        </ol>
         <Button onClick={() => void connect()} disabled={opening}>
           <Link data-icon="inline-start" />
           {opening
