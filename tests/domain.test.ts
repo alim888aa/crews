@@ -73,13 +73,14 @@ test('ordered peer requests do not duplicate already waiting speakers', () => {
   assert.equal(s.deliveries.length, 3)
   assert.equal(s.deliveries[2]!.status, 'pending')
 })
-test('progress cannot dispatch peers and each round is bounded', () => {
+test('progress cannot dispatch peers and each round respects the selected limit', () => {
   const s = pair()
+  s.replyLimit = 16
   sendMessage(s, '@one @two hi', null)
   assert.throws(() =>
     acceptEvent(s, { ...reply(s, 0, 'working', ['two']), kind: 'progress' }),
   )
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 16; i++) {
     const d = s.deliveries[i]
     if (!d) break
     acceptEvent(
@@ -87,7 +88,7 @@ test('progress cannot dispatch peers and each round is bounded', () => {
       reply(s, i, 'next', [d.workerId === s.workers[0]!.id ? 'two' : 'one']),
     )
   }
-  assert.equal(s.deliveries.length, 9)
+  assert.equal(s.deliveries.length, 16)
   assert.equal(s.messages.at(-1)!.discussionPaused, true)
 })
 test('teammates use unique valid handles and stable task IDs', () => {
@@ -155,4 +156,45 @@ test('setup cannot replace a previously registered relay', () => {
       token: s.relay.token,
     }),
   )
+})
+
+test('a limit below the initial recipient count rejects the whole send', () => {
+  const s = pair()
+  s.replyLimit = 2
+  assert.throws(
+    () => sendMessage(s, '@all hi', null),
+    /Increase the reply limit/,
+  )
+  assert.equal(s.messages.length, 0)
+  assert.equal(s.deliveries.length, 0)
+})
+
+test('lowering the limit lets queued replies finish without allocating more', () => {
+  const s = pair()
+  sendMessage(s, '@all discuss', null)
+  s.replyLimit = 1
+  acceptEvent(s, reply(s, 0, 'next', ['two']))
+  acceptEvent(s, reply(s, 1, 'next', ['one']))
+  acceptEvent(s, reply(s, 2, 'next', ['one']))
+  assert.equal(s.deliveries.length, 3)
+  assert.ok(s.deliveries.every((d) => d.status === 'replied'))
+  assert.equal(s.messages.at(-1)!.discussionPaused, true)
+})
+
+test('raising the limit applies to ongoing discussions and new messages get a fresh budget', () => {
+  const s = pair()
+  s.replyLimit = 2
+  const root = sendMessage(s, '@one @two discuss', null)
+  acceptEvent(s, reply(s, 0, 'first'))
+  s.replyLimit = 4
+  acceptEvent(s, reply(s, 1, 'next', ['one']))
+  assert.equal(s.deliveries.length, 3)
+  acceptEvent(s, reply(s, 2, 'next', ['two']))
+  acceptEvent(s, reply(s, 3, 'next', ['one']))
+  assert.equal(s.deliveries.length, 4)
+  assert.equal(s.messages.at(-1)!.discussionPaused, true)
+  sendMessage(s, '@one continue', root.id)
+  assert.equal(s.deliveries.length, 5)
+  acceptEvent(s, reply(s, 4, 'next', ['two']))
+  assert.equal(s.deliveries.length, 6)
 })

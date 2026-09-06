@@ -379,3 +379,35 @@ test('@all and untagged conversation follow-ups include the request addressed by
   assert.ok(job)
   assert.equal(inlineMessage(job.prompt).messageId, followUp.id)
 })
+
+test('reply limit persists, migrates old rooms and rejects invalid updates atomically', (t) => {
+  const { dir, room } = fixture(t)
+  assert.equal(room.state.replyLimit, 32)
+  const legacy: Partial<typeof room.state> = structuredClone(room.state)
+  delete legacy.replyLimit
+  atomicWrite(path.join(dir, 'state.json'), legacy)
+  const restored = new Room(dir)
+  assert.equal(restored.state.replyLimit, 32)
+  restored.setReplyLimit(64)
+  assert.equal(new Room(dir).snapshot().replyLimit, 64)
+  const before = fs.readFileSync(path.join(dir, 'state.json'), 'utf8')
+  for (const value of [
+    0,
+    -1,
+    1.5,
+    '32',
+    null,
+    undefined,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.throws(() => restored.setReplyLimit(value), /whole number/)
+  }
+  assert.equal(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'), before)
+  restored.send({ text: '@one @two discuss', parentId: null })
+  const delivery = restored.state.deliveries[0]!
+  assert.equal(envelope(restored.state, delivery, dir).remainingReplies, 62)
+  restored.setReplyLimit(1)
+  assert.equal(envelope(restored.state, delivery, dir).remainingReplies, 0)
+})

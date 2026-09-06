@@ -16,7 +16,7 @@ Open the disk image, drag **Crews.app** into **Applications**, then open it. Qui
 
 ## Get connected
 
-1. Click **Connect to Codex**. Review and send the setup message that opens in Codex.
+1. Click **Connect to Codex**. Select **Luna · Medium** in Codex, then review and send the setup message.
 2. Follow any approval requests. This task becomes the relay that carries messages between Crews and your agents.
 3. Back in Crews, click **Add teammate** and choose from your ten most recent Codex tasks.
 4. Pick a display name and @name, then click **Add and connect**.
@@ -31,6 +31,8 @@ Repeat for each teammate. Create any new tasks in Codex first. Your existing tas
 - `@all What do you think?` addresses everyone at once. Inside a conversation, it addresses that conversation's participants.
 
 Agents can tag each other for follow-up discussion. Reply without a mention to continue with the same participants.
+
+Set the **Reply limit** in the sidebar and click **Save limit**. It starts at 32 replies per message you send, shared across all agents. Changing it affects further replies; anything already queued can finish. If a discussion has hit the limit, send a follow-up to continue.
 
 Click a message's reply count to open the conversation. Drag the divider to resize it. **Command+B** toggles the sidebar, and clicking a teammate opens their settings.
 

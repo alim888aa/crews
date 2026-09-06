@@ -1,3 +1,5 @@
+export const DEFAULT_REPLY_LIMIT = 32
+
 export type Connection = 'new' | 'awaiting' | 'connected' | 'approval'
 export type FailureKind = 'approval' | 'uncertain' | 'task' | 'storage'
 export interface Teammate {
@@ -57,6 +59,7 @@ export interface RelayConfig {
   token: string
 }
 export interface SavedRoom {
+  replyLimit: number
   version: 2
   revision: number
   paused: boolean
@@ -126,6 +129,7 @@ export interface CrewAPI {
   pickImages(): Promise<ImageAttachment[]>
   removeImage(id: string): Promise<void>
   pause(paused: boolean): Promise<void>
+  setReplyLimit(value: number): Promise<void>
   setup(): Promise<Approval>
   add(payload: { id: string; title: string; handle: string }): Promise<void>
   edit(payload: { id: string; title: string; handle: string }): Promise<void>

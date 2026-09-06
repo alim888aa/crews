@@ -126,6 +126,7 @@ else {
           parentId: v.parentId === null ? null : uuid(v.parentId),
         })
       })
+      handle('room:reply-limit', (value) => room.setReplyLimit(value))
       handle('room:pause', (value) => {
         if (typeof value !== 'boolean') throw new Error('Invalid pause state.')
         room.transaction((s) => {

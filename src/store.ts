@@ -1,3 +1,4 @@
+import { DEFAULT_REPLY_LIMIT } from '../shared/contracts'
 import type { CrewAPI, RoomState } from '../shared/contracts'
 export type {
   Worker,
@@ -19,6 +20,7 @@ let state: RoomState = {
   workers: [],
   deliveries: [],
   paused: false,
+  replyLimit: DEFAULT_REPLY_LIMIT,
   recent: [],
   recentAt: null,
   refreshRequestedAt: null,

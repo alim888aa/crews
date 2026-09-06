@@ -8,7 +8,7 @@ import type {
   Teammate,
 } from '../shared/contracts.js'
 import { string, uuid } from './storage.js'
-export const MAX_DELIVERIES = 9
+import { DEFAULT_REPLY_LIMIT } from '../shared/contracts.js'
 export const handlesIn = (text: string) => [
   ...new Set(
     [...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]*)\b/gi)].map((m) =>
@@ -21,6 +21,7 @@ export function newRoom(): SavedRoom {
     version: 2,
     revision: 0,
     paused: false,
+    replyLimit: DEFAULT_REPLY_LIMIT,
     workers: [],
     messages: [],
     deliveries: [],
@@ -99,6 +100,10 @@ export function sendMessage(
       : (root?.recipientIds ?? [])
   if (!recipients.length)
     throw invalidRequest('Add and mention a teammate first.')
+  if (recipients.length > state.replyLimit)
+    throw invalidRequest(
+      `This message needs ${recipients.length} replies. Increase the reply limit in the sidebar to at least ${recipients.length}.`,
+    )
   const id = randomUUID(),
     mode = handles.includes('all') ? 'simultaneous' : 'ordered'
   const message: ChatMessage = {
@@ -211,7 +216,7 @@ export function acceptEvent(state: SavedRoom, event: RoomEvent) {
   worker.connection = 'connected'
   worker.connectedAt = Date.now()
   let remaining =
-    MAX_DELIVERIES -
+    state.replyLimit -
     state.deliveries.filter((d) => d.roundId === round.id).length
   const ordered = round.mode === 'ordered'
   const current = round.recipientIds.indexOf(worker.id)

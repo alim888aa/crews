@@ -50,7 +50,8 @@ export function envelope(
       .map((d) => state.workers.find((w) => w.id === d.workerId)!.handle),
     remainingReplies: Math.max(
       0,
-      9 - state.deliveries.filter((d) => d.roundId === round.id).length,
+      state.replyLimit -
+        state.deliveries.filter((d) => d.roundId === round.id).length,
     ),
     messages: state.messages
       .filter((m) => m.rootId === root.id && m.kind !== 'progress')

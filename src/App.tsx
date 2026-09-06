@@ -1,3 +1,4 @@
+import { ReplyLimit } from './ReplyLimit'
 import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import {
   ArrowUp,
@@ -244,7 +245,8 @@ function MessageRow({
         </Bubble>
         {message.discussionPaused && (
           <p className="text-xs text-muted-foreground">
-            Discussion limit reached. Send a reply to continue.
+            Reply limit reached. Increase it in the sidebar, then send a
+            follow-up to continue.
           </p>
         )}
         {children && (
@@ -674,6 +676,7 @@ export default function App() {
               </div>
             </SidebarContent>
             <SidebarFooter className="gap-3 p-4">
+              <ReplyLimit key={state.replyLimit} value={state.replyLimit} />
               <Separator />
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm">Luna relay</span>

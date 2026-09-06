@@ -77,7 +77,7 @@ export function Setup({ state }: { state: RoomState }) {
             <div>
               <p className="text-base font-medium">Connect Codex</p>
               <p className="text-sm text-muted-foreground">
-                Send the setup message that opens in Codex.
+                Select Luna · Medium in Codex, then send the setup message.
               </p>
             </div>
           </li>
@@ -125,7 +125,7 @@ export function Setup({ state }: { state: RoomState }) {
           <p role="status" className="text-muted-foreground">
             {registered
               ? 'Paste the copied message in Codex and press Send.'
-              : 'Press Send in Codex to finish connecting.'}
+              : 'Select Luna · Medium, then press Send in Codex.'}
           </p>
         )}
         {error && (

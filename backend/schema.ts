@@ -1,4 +1,11 @@
 import { Schema } from 'effect'
+import { DEFAULT_REPLY_LIMIT } from '../shared/contracts.js'
+export const ReplyLimitSchema = Schema.Number.pipe(
+  Schema.int(),
+  Schema.positive(),
+  Schema.lessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+)
+export const isReplyLimit = Schema.is(ReplyLimitSchema)
 const ID = Schema.String.pipe(
   Schema.pattern(
     /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
@@ -66,6 +73,9 @@ export const StateSchema = Schema.Struct({
   version: Schema.Literal(2),
   revision: Schema.Number,
   paused: Schema.Boolean,
+  replyLimit: Schema.optionalWith(ReplyLimitSchema, {
+    default: () => DEFAULT_REPLY_LIMIT,
+  }),
   workers: Schema.Array(Worker),
   messages: Schema.Array(Message),
   deliveries: Schema.Array(Delivery),

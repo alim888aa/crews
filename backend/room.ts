@@ -19,7 +19,7 @@ import {
 } from './domain.js'
 import { atomicWrite, optionalJSON, object } from './storage.js'
 import { Attachments } from './attachments.js'
-import { decodeState, decodeEvent } from './schema.js'
+import { decodeState, decodeEvent, isReplyLimit } from './schema.js'
 export const receiptPath = (dir: string, id: string) =>
   path.join(dir, 'receipts', id + '.json')
 export function readState(directory: string): SavedRoom {
@@ -61,6 +61,13 @@ export class Room extends EventEmitter {
     atomicWrite(path.join(this.directory, 'state.json'), next)
     this.state = next
     return result
+  }
+  setReplyLimit(value: unknown): void {
+    if (!isReplyLimit(value))
+      throw invalidRequest('Enter a whole number of replies greater than zero.')
+    this.transaction((state) => {
+      state.replyLimit = value
+    })
   }
   send(payload: {
     text: string

@@ -6,6 +6,7 @@ const api: CrewAPI = {
   importImage: (value) => ipcRenderer.invoke('room:image-import', value),
   pickImages: () => ipcRenderer.invoke('room:image-pick'),
   removeImage: (id) => ipcRenderer.invoke('room:image-remove', id),
+  setReplyLimit: (value) => ipcRenderer.invoke('room:reply-limit', value),
   pause: (value) => ipcRenderer.invoke('room:pause', value),
   setup: () => ipcRenderer.invoke('room:setup'),
   add: (value) => ipcRenderer.invoke('room:add', value),
