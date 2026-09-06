@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { sign } from '@electron/osx-sign'
 
 if (process.platform !== 'darwin')
   throw new Error('Build the Mac app on macOS.')
@@ -100,9 +101,23 @@ for (const helper of fs
     helperPlist,
   ])
 }
-execFileSync(
-  '/usr/bin/codesign',
-  ['--force', '--deep', '--sign', '-', output],
-  { stdio: 'inherit' },
-)
+const identity = process.env.CREWS_SIGNING_IDENTITY
+if (identity) {
+  await sign({
+    app: output,
+    platform: 'darwin',
+    identity,
+    preEmbedProvisioningProfile: false,
+    optionsForFile: () => ({
+      hardenedRuntime: true,
+      entitlements: ['com.apple.security.cs.allow-jit'],
+    }),
+  })
+} else {
+  execFileSync(
+    '/usr/bin/codesign',
+    ['--force', '--deep', '--sign', '-', output],
+    { stdio: 'inherit' },
+  )
+}
 console.log(output)

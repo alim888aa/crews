@@ -10,7 +10,6 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
   Field,
@@ -29,6 +28,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
   Empty,
   EmptyHeader,
+  EmptyContent,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
@@ -56,97 +56,36 @@ export function Setup({ state }: { state: RoomState }) {
     }
   }
   return (
-    <section className="onboarding" aria-label="Connect Crews">
-      <div className="onboarding-copy">
-        <Badge variant="outline">YOUR TASKS. ONE ROOM.</Badge>
-        <h1 className="mt-5 text-4xl font-semibold tracking-tight">
-          Bring your people
-          <br />
-          into the room.
-        </h1>
-        <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
-          The planner who knows your week. The builder who knows your code. Keep
-          their history and tools, and talk to them here.
-        </p>
-        <div className="mt-8 flex flex-col gap-4">
-          <div className="setup-step">
-            <span className="step-number">1</span>
-            <div>
-              <p className="font-medium">Connect Codex</p>
-              <p className="text-sm text-muted-foreground">
-                Open the prepared setup message and press Send.
-              </p>
-            </div>
-          </div>
-          <div className="setup-step">
-            <span className="step-number">2</span>
-            <div>
-              <p className="font-medium">Choose your teammates</p>
-              <p className="text-sm text-muted-foreground">
-                Pick existing tasks and give them an @name.
-              </p>
-            </div>
-          </div>
-          <div className="setup-step">
-            <span className="step-number">3</span>
-            <div>
-              <p className="font-medium">Say something</p>
-              <p className="text-sm text-muted-foreground">
-                Mention one person, a few, or everyone.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <Button onClick={() => void connect()} disabled={opening}>
-            <Link data-icon="inline-start" />
-            {opening
-              ? 'Opening Codex…'
-              : registered
-                ? 'Copy setup and open relay'
-                : opened
-                  ? 'Reopen setup'
-                  : 'Connect to Codex'}
-            <ArrowUpRight data-icon="inline-end" />
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Keep Codex open while using the room.
-          </span>
-        </div>
+    <Empty className="min-h-full" aria-label="Connect Crews">
+      <EmptyHeader>
+        <EmptyTitle>Chat with your Codex agents.</EmptyTitle>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button onClick={() => void connect()} disabled={opening}>
+          <Link data-icon="inline-start" />
+          {opening
+            ? 'Opening Codex…'
+            : registered
+              ? 'Resume setup'
+              : opened
+                ? 'Reopen setup'
+                : 'Connect to Codex'}
+          <ArrowUpRight data-icon="inline-end" />
+        </Button>
         {(opened || registered) && (
-          <Alert className="mt-5">
-            <AlertTitle>
-              {registered
-                ? 'Finish setup in the relay task'
-                : 'Your setup message is ready in Codex'}
-            </AlertTitle>
-            <AlertDescription>
-              {registered
-                ? 'If you reopened setup, paste the copied message and press Send in that relay task. The room will update when the relay reports back.'
-                : 'Press Send there, then return here. No teammate receives messages until you connect them.'}
-            </AlertDescription>
-          </Alert>
+          <p role="status" className="text-muted-foreground">
+            {registered
+              ? 'Paste the copied message in Codex and press Send.'
+              : 'Press Send in Codex to finish connecting.'}
+          </p>
         )}
         {error && (
-          <Alert variant="destructive" className="mt-4">
+          <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-      </div>
-      <div className="onboarding-note">
-        <Users className="size-10 text-muted-foreground" />
-        <h2 className="mt-6 text-xl font-medium">Already know each other?</h2>
-        <p className="mt-3 leading-relaxed text-muted-foreground">
-          Good. Your existing Codex tasks stay exactly where they are. You’re
-          giving them a shared place to talk.
-        </p>
-        <div className="mt-8 border-t pt-5 text-sm text-muted-foreground">
-          Room history stays on this Mac.
-          <br />
-          Agents keep using your Codex account.
-        </div>
-      </div>
-    </section>
+      </EmptyContent>
+    </Empty>
   )
 }
 export function ConnectionLabel({ worker }: { worker: Worker }) {

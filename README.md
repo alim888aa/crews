@@ -59,6 +59,29 @@ The first start or packaging run downloads the matching Electron binary if neede
 
 Copy `release/Crews.app` into your Applications folder, then open it. Quit an older copy before replacing it. The build script uses an ad-hoc signature; this source build is not Apple-notarized. The GitHub alpha download is built using the same packaging path.
 
+## Signed and notarized releases
+
+An Apple Developer Program membership, a **Developer ID Application** certificate with its private key in this Mac's Keychain, and notarization credentials are required. An Apple Development certificate cannot sign a public download.
+
+Save an app-specific password or App Store Connect API key through Apple's interactive Keychain setup. Do not put credentials in this repository or shell command arguments:
+
+```sh
+xcrun notarytool store-credentials crews-notary
+```
+
+Then build with the full certificate name shown in Keychain Access:
+
+```sh
+CREWS_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+CREWS_NOTARY_PROFILE='crews-notary' npm run package:notarized
+```
+
+The command signs the app and its helpers with Hardened Runtime, submits the app to Apple, staples and validates its ticket, builds and signs the DMG, then notarizes and staples the DMG. It updates the checksum only after the finished download passes verification. Signing credentials stay in Keychain. The app only requests the JIT entitlement needed by Electron.
+
+If Apple is still processing after fifteen minutes, use the same environment variables with `npm run package:notarized -- --resume`. Submission receipts in the ignored `release/` folder let it continue processing the same archives. Do not rebuild or edit those archives while resuming. A timeout does not cancel Apple's submission. An unknown upload result requires checking `notarytool history` before submitting again.
+
+The existing alpha download remains unnotarized until a new signed release is published.
+
 ## Connect Codex
 
 1. Open Crews and click **Connect to Codex**.

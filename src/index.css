@@ -159,12 +159,6 @@
 }
 
 @layer components {
-  .onboarding { @apply flex min-h-full items-center gap-12 overflow-auto px-10 py-10; }
-  .onboarding-copy { @apply min-w-0 flex-1; }
-  .onboarding-note { @apply w-64 shrink-0 rounded-xl border bg-sidebar p-7; }
-  .setup-step { @apply flex items-center gap-3; }
-  .step-number { @apply flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground; }
-  @media (max-width: 1080px) { .onboarding-note { display: none; } .onboarding { @apply px-7; } }
 }
 
 @layer components {
