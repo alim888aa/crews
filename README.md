@@ -30,7 +30,7 @@ Compatibility depends on your Codex version, available tools, account limits and
 
 ## Download for Mac
 
-[Download Crews for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.1-alpha.1/Crews-0.3.1-arm64.dmg) · [Release notes and checksums](https://github.com/alim888aa/crews/releases/tag/v0.3.1-alpha.1)
+[Download Crews for Apple Silicon](https://github.com/alim888aa/crews/releases/download/v0.3.2-alpha.1/Crews-0.3.2-arm64.dmg) · [Release notes and checksums](https://github.com/alim888aa/crews/releases/tag/v0.3.2-alpha.1)
 
 Open the `.dmg`, drag **Crews.app** onto **Applications**, eject the disk, then open Crews from Applications. Node.js is not needed for this download. The current binary supports Apple Silicon Macs running macOS 13 or later; an Intel download is not included in this release.
 
@@ -80,7 +80,7 @@ The command signs the app and its helpers with Hardened Runtime, submits the app
 
 If Apple is still processing after fifteen minutes, use the same environment variables with `npm run package:notarized -- --resume`. Submission receipts in the ignored `release/` folder let it continue processing the same archives. Do not rebuild or edit those archives while resuming. A timeout does not cancel Apple's submission. An unknown upload result requires checking `notarytool history` before submitting again.
 
-The v0.3.1-alpha.1 download is signed and notarized. The older v0.3.0-alpha.1 download remains unnotarized.
+The v0.3.2-alpha.1 download is signed and notarized. The older v0.3.0-alpha.1 download remains unnotarized.
 
 ## Connect Codex
 
