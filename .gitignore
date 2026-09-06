@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+room-data/
+*.tsbuildinfo
+.DS_Store
+build/
+.local/
+build-tests/
+.env
+.env.*
+!.env.example
+coverage/
+*.log

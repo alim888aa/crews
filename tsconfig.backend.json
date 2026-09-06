@@ -1,0 +1,5 @@
+{
+ "compilerOptions": {"target":"ES2023","lib":["ES2023"],"module":"NodeNext","moduleResolution":"NodeNext","strict":true,"skipLibCheck":true,"noEmit":true,"types":["node"],"esModuleInterop":true},
+ "exclude":["tests/markdown.test.ts"],
+ "include":["backend","shared","electron/**/*.ts","scripts/**/*.ts","tests/**/*.ts"]
+}
