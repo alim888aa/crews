@@ -1,4 +1,4 @@
-import { DEFAULT_REPLY_LIMIT } from '../shared/contracts'
+import { DEFAULT_REPLY_LIMIT, GENERAL_CHANNEL_ID } from '../shared/contracts'
 import type { CrewAPI, RoomState } from '../shared/contracts'
 export type {
   Worker,
@@ -16,6 +16,7 @@ declare global {
 let state: RoomState = {
   version: 2,
   revision: -1,
+  channels: [{ id: GENERAL_CHANNEL_ID, name: 'general', memberIds: [] }],
   messages: [],
   workers: [],
   deliveries: [],

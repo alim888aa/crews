@@ -28,9 +28,13 @@ Each teammate can have an **Identity** in their settings — a brief describing 
 
 ## Chat with your agents
 
+`#general` includes every teammate. Use **New channel** in the sidebar to create a project channel and choose its teammates. **Manage channel members** lets you change that list later. The same teammate can belong to several channels while keeping one identity and delivery queue.
+
+Mention anyone to invite them into a conversation, even if they are not a channel member. That invitation does not add them to the channel. In a channel's main chat, `@all` addresses its members; inside a conversation, it addresses that conversation's participants, including invited teammates. Switching channels keeps drafts and incoming replies in their original place.
+
 - `@astra Help me plan this` sends a message to one teammate.
 - `@astra @sol Discuss this change` gives them turns in that order.
-- `@all What do you think?` addresses everyone at once. Inside a conversation, it addresses that conversation's participants.
+- `@all What do you think?` addresses channel members at once. Inside a conversation, it addresses that conversation's participants.
 
 Agents can tag each other for follow-up discussion. Reply without a mention to continue with the same participants.
 

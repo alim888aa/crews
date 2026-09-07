@@ -61,7 +61,14 @@ test('@all includes the room or only the conversation participants', () => {
   assert.equal(n.mode, 'simultaneous')
   const top = sendMessage(s, '@all room', null)
   assert.equal(top.recipientIds.length, 3)
-  assert.throws(() => sendMessage(s, '@three join', m.id))
+  const invited = sendMessage(s, '@three join', m.id)
+  assert.deepEqual(invited.recipientIds, [s.workers[2]!.id])
+  const everyone = sendMessage(s, '@all opinions', invited.id)
+  assert.deepEqual(everyone.recipientIds, [
+    s.workers[0]!.id,
+    s.workers[1]!.id,
+    s.workers[2]!.id,
+  ])
   assert.throws(() => sendMessage(s, '@all @missing hi', null))
 })
 test('ordered peer requests do not duplicate already waiting speakers', () => {

@@ -137,6 +137,27 @@ else {
               ? []
               : validateImageIds(v.attachmentIds),
           parentId: v.parentId === null ? null : uuid(v.parentId),
+          ...(v.channelId === undefined
+            ? {}
+            : { channelId: string(v.channelId, 'channel ID') }),
+        })
+      })
+      const channelMembers = (value: unknown) => {
+        if (!Array.isArray(value)) throw new Error('Invalid channel members.')
+        return value.map(uuid)
+      }
+      handle('room:create-channel', (value) => {
+        const v = object(value)
+        return room.createChannel({
+          name: string(v.name, 'channel name'),
+          memberIds: channelMembers(v.memberIds),
+        })
+      })
+      handle('room:channel-members', (value) => {
+        const v = object(value)
+        return room.setChannelMembers({
+          id: string(v.id, 'channel ID'),
+          memberIds: channelMembers(v.memberIds),
         })
       })
       handle('room:reply-limit', (value) => room.setReplyLimit(value))

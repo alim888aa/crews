@@ -39,11 +39,15 @@ export function envelope(
   const worker = state.workers.find((w) => w.id === delivery.workerId)!
   const root = state.messages.find((m) => m.id === delivery.rootId)!
   const round = state.messages.find((m) => m.id === delivery.roundId)!
+  const channel = state.channels.find(
+    (candidate) => candidate.id === root.channelId,
+  )!
   return {
     deliveryId: delivery.id,
     worker,
     rootId: root.id,
     messageId: delivery.messageId,
+    channel: { id: root.channelId, name: channel?.name ?? root.channelId },
     mode: round.mode,
     scheduledAfterYou: state.deliveries
       .filter((d) => d.roundId === round.id && d.status === 'waiting')

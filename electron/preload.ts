@@ -3,6 +3,10 @@ import type { CrewAPI, RoomState } from '../shared/contracts.js'
 const api: CrewAPI = {
   snapshot: () => ipcRenderer.invoke('room:snapshot'),
   send: (payload) => ipcRenderer.invoke('room:send', payload),
+  createChannel: (payload) =>
+    ipcRenderer.invoke('room:create-channel', payload),
+  setChannelMembers: (payload) =>
+    ipcRenderer.invoke('room:channel-members', payload),
   importImage: (value) => ipcRenderer.invoke('room:image-import', value),
   pickImages: () => ipcRenderer.invoke('room:image-pick'),
   removeImage: (id) => ipcRenderer.invoke('room:image-remove', id),

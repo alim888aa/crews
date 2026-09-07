@@ -98,6 +98,12 @@ import {
   type ImageAttachment,
 } from '../shared/contracts'
 import { Setup, Teammates, ConnectionLabel } from '@/Connections'
+import { Channels } from '@/Channels'
+import {
+  channelMemberIds,
+  conversationParticipantIds,
+} from '../shared/channels'
+import { GENERAL_CHANNEL_ID } from '../shared/contracts'
 
 const time = (value: number) =>
   new Intl.DateTimeFormat(undefined, {
@@ -261,19 +267,23 @@ function MessageRow({
 
 function Composer({
   room,
+  channelId,
   root,
   replyTarget,
   onClearTarget,
   onSent,
 }: {
   room: RoomState
+  channelId: string
   root?: ChatMessage
   replyTarget?: ChatMessage
-  onClearTarget?: () => void
+  onClearTarget?: (targetId: string) => void
   onSent: (message: ChatMessage) => void
 }) {
   const drafts = useSyncExternalStore(subscribeDrafts, getDrafts)
-  const draftId = root?.id ?? 'channel'
+  const draftId =
+    root?.id ??
+    (channelId === GENERAL_CHANNEL_ID ? 'channel' : `channel:${channelId}`)
   const text = drafts[draftId] ?? ''
   const imageDrafts = useSyncExternalStore(subscribeDrafts, getImageDrafts)
   const images = imageDrafts[draftId] ?? []
@@ -282,9 +292,13 @@ function Composer({
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
-  const allowed = root
-    ? root.recipientIds.flatMap((id) => room.workers.filter((w) => w.id === id))
-    : room.workers
+  const allowed = room.workers
+  const allRecipientIds = root
+    ? conversationParticipantIds(room, root.id)
+    : channelMemberIds(room, channelId)
+  const allRecipients = allRecipientIds.flatMap((id) =>
+    room.workers.filter((worker) => worker.id === id),
+  )
   const handles = [
     ...new Set(
       [...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]*)\b/gi)].map((m) =>
@@ -293,12 +307,22 @@ function Composer({
     ),
   ]
   const simultaneous = handles.includes('all')
+  const namedRecipients = handles.flatMap((handle) =>
+    allowed.filter((worker) => worker.handle === handle),
+  )
   const recipients = simultaneous
-    ? allowed
+    ? [
+        ...new Map(
+          [...allRecipients, ...namedRecipients].map((worker) => [
+            worker.id,
+            worker,
+          ]),
+        ).values(),
+      ]
     : handles.length
-      ? handles.flatMap((h) => allowed.filter((w) => w.handle === h))
+      ? namedRecipients
       : root
-        ? allowed
+        ? allRecipients
         : []
   const unknown = handles.some(
     (h) => h !== 'all' && !allowed.some((w) => w.handle === h),
@@ -384,10 +408,16 @@ function Composer({
         text,
         attachmentIds: images.map((a) => a.id),
         parentId: replyTarget?.id ?? root?.id ?? null,
+        channelId,
       })
-      setDraft(draftId, '')
-      setImageDrafts(draftId, [])
-      onClearTarget?.()
+      if (getDrafts()[draftId] === text) setDraft(draftId, '')
+      const currentImages = getImageDrafts()[draftId] ?? []
+      if (
+        currentImages.length === images.length &&
+        currentImages.every((image, index) => image.id === images[index]?.id)
+      )
+        setImageDrafts(draftId, [])
+      if (replyTarget) onClearTarget?.(replyTarget.id)
       onSent(message)
     } catch (e) {
       setError(errorText(e))
@@ -406,7 +436,9 @@ function Composer({
       <FieldGroup>
         <Field data-invalid={!!error}>
           <FieldLabel htmlFor={'compose-' + draftId} className="sr-only">
-            {root ? 'Reply to conversation' : 'Message general'}
+            {root
+              ? 'Reply to conversation'
+              : `Message ${room.channels.find((channel) => channel.id === channelId)?.name ?? 'channel'}`}
           </FieldLabel>
           {replyTarget && replyTarget.id !== root?.id && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -419,7 +451,7 @@ function Composer({
                 variant="ghost"
                 size="icon-xs"
                 aria-label="Cancel reply target"
-                onClick={onClearTarget}
+                onClick={() => onClearTarget?.(replyTarget.id)}
               >
                 <X />
               </Button>
@@ -501,7 +533,7 @@ function Composer({
                   aria-label={
                     root
                       ? 'Mention everyone in this conversation'
-                      : 'Mention all teammates'
+                      : 'Mention all channel members'
                   }
                 >
                   @all
@@ -554,6 +586,8 @@ function Composer({
 export default function App() {
   const state = useSyncExternalStore(subscribe, getSnapshot)
   const roomError = useSyncExternalStore(subscribeErrors, getRoomError)
+  const [channelId, setChannelId] = useState(GENERAL_CHANNEL_ID)
+  const channelIdRef = useRef(channelId)
   const [selected, setSelectedId] = useState<string | null>(null)
   const [conversationOpen, setConversationOpen] = useState(false)
   const [panelMotion, setPanelMotion] = useState(false)
@@ -574,8 +608,14 @@ export default function App() {
   const [relayDetails, setRelayDetails] = useState(false)
   const [error, setError] = useState('')
   const [manage, setManage] = useState<{ id?: string } | null>(null)
-  const root = state.messages.find((m) => m.id === selected)
-  const roots = state.messages.filter((m) => m.id === m.rootId)
+  const root = state.messages.find(
+    (m) => m.id === selected && m.channelId === channelId,
+  )
+  const channel =
+    state.channels.find((item) => item.id === channelId) ?? state.channels[0]
+  const roots = state.messages.filter(
+    (m) => m.id === m.rootId && m.channelId === channelId,
+  )
   const relayOnline =
     state.relay.status === 'waiting' || state.relay.status === 'dispatching'
   const conversation = root
@@ -585,8 +625,24 @@ export default function App() {
     root && replyTargets[root.id]
       ? state.messages.find((m) => m.id === replyTargets[root.id])
       : undefined
-  const clearTarget = () => {
-    if (root) setReplyTargets({ ...replyTargets, [root.id]: '' })
+  const clearTarget = (targetId: string) => {
+    if (root)
+      setReplyTargets((current) =>
+        current[root.id] === targetId ? { ...current, [root.id]: '' } : current,
+      )
+  }
+  const guestCount = root
+    ? conversationParticipantIds(state, root.id).filter(
+        (id) => !channelMemberIds(state, root.channelId).includes(id),
+      ).length
+    : 0
+  function selectChannel(id: string) {
+    if (id === channelId) return
+    channelIdRef.current = id
+    setSelectedId(null)
+    setConversationOpen(false)
+    conversationPanel.current?.collapse()
+    setChannelId(id)
   }
   return (
     <TooltipProvider>
@@ -614,15 +670,11 @@ export default function App() {
               <Badge variant="outline">Local</Badge>
             </SidebarHeader>
             <SidebarContent className="gap-0">
-              <nav className="px-2">
-                <Button
-                  variant="secondary"
-                  className="w-full justify-start"
-                  onClick={() => setSelected(null)}
-                >
-                  <Hash data-icon="inline-start" /> general
-                </Button>
-              </nav>
+              <Channels
+                room={state}
+                selectedId={channelId}
+                onSelect={selectChannel}
+              />
               <div className="mt-8 flex items-center justify-between px-4 text-xs text-muted-foreground">
                 <span>TEAMMATES</span>
                 <Button
@@ -757,11 +809,13 @@ export default function App() {
                 <div className="channel-header">
                   <div className="flex items-center gap-2">
                     <Hash className="size-5 text-muted-foreground" />
-                    <h1 className="font-semibold">general</h1>
+                    <h1 className="font-semibold">
+                      {channel?.name ?? 'general'}
+                    </h1>
                     {state.paused && <Badge variant="secondary">Paused</Badge>}
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {state.workers.length} existing Codex tasks
+                    {channelMemberIds(state, channelId).length} teammates
                   </span>
                 </div>
                 {relayDetails && (
@@ -932,8 +986,13 @@ export default function App() {
                 </div>
                 {state.workers.length > 0 && (
                   <Composer
+                    key={channelId}
                     room={state}
-                    onSent={(message) => setSelected(message.rootId)}
+                    channelId={channelId}
+                    onSent={(message) => {
+                      if (channelIdRef.current === message.channelId)
+                        setSelected(message.rootId)
+                    }}
                   />
                 )}
               </main>
@@ -964,7 +1023,14 @@ export default function App() {
                   aria-label="Conversation replies"
                 >
                   <div className="channel-header">
-                    <h2 className="font-semibold">Conversation</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-semibold">Conversation</h2>
+                      {guestCount > 0 && (
+                        <Badge variant="outline">
+                          {guestCount} {guestCount === 1 ? 'guest' : 'guests'}
+                        </Badge>
+                      )}
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -1034,6 +1100,7 @@ export default function App() {
                   <Composer
                     key={root.id}
                     room={state}
+                    channelId={root.channelId}
                     root={root}
                     replyTarget={target}
                     onClearTarget={clearTarget}

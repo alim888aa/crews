@@ -1,6 +1,7 @@
 import { Schema } from 'effect'
 import {
   DEFAULT_REPLY_LIMIT,
+  GENERAL_CHANNEL_ID,
   MAX_IDENTITY_LENGTH,
 } from '../shared/contracts.js'
 export const ReplyLimitSchema = Schema.Number.pipe(
@@ -29,6 +30,12 @@ export const ImageSchema = Schema.Struct({
 })
 export const decodeImage = Schema.decodeUnknownSync(ImageSchema)
 const Mode = Schema.Literal('ordered', 'simultaneous')
+const ChannelId = Schema.Union(ID, Schema.Literal(GENERAL_CHANNEL_ID))
+const Channel = Schema.Struct({
+  id: ChannelId,
+  name: Schema.String.pipe(Schema.pattern(/^[a-z0-9-]{1,40}$/)),
+  memberIds: Schema.Array(ID),
+})
 const Message = Schema.Struct({
   id: ID,
   rootId: ID,
@@ -42,6 +49,9 @@ const Message = Schema.Struct({
   createdAt: Schema.Number,
   recipientIds: Schema.Array(ID),
   roundId: ID,
+  channelId: Schema.optionalWith(ChannelId, {
+    default: () => GENERAL_CHANNEL_ID,
+  }),
   mode: Schema.optional(Mode),
   deliveryId: Schema.optional(ID),
   discussionPaused: Schema.optional(Schema.Boolean),
@@ -81,6 +91,11 @@ export const StateSchema = Schema.Struct({
   paused: Schema.Boolean,
   replyLimit: Schema.optionalWith(ReplyLimitSchema, {
     default: () => DEFAULT_REPLY_LIMIT,
+  }),
+  channels: Schema.optionalWith(Schema.Array(Channel), {
+    default: () => [
+      { id: GENERAL_CHANNEL_ID, name: GENERAL_CHANNEL_ID, memberIds: [] },
+    ],
   }),
   workers: Schema.Array(Worker),
   messages: Schema.Array(Message),

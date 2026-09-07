@@ -17,6 +17,7 @@ import {
   newRoom,
   sendMessage,
   validateTeammate,
+  validateChannel,
 } from './domain.js'
 import { atomicWrite, optionalJSON, object } from './storage.js'
 import { Attachments } from './attachments.js'
@@ -73,14 +74,39 @@ export class Room extends EventEmitter {
   send(payload: {
     text: string
     parentId: string | null
+    channelId?: string
     attachmentIds?: string[]
   }) {
     const images = new Attachments(this.directory).resolve(
       payload.attachmentIds ?? [],
     )
     return this.transaction((s) =>
-      sendMessage(s, payload.text, payload.parentId, images),
+      sendMessage(s, payload.text, payload.parentId, images, payload.channelId),
     )
+  }
+  createChannel(input: { name: string; memberIds: string[] }) {
+    return this.transaction((state) => {
+      const channel = validateChannel(state, input)
+      state.channels.push(channel)
+      return channel
+    })
+  }
+  setChannelMembers(input: { id: string; memberIds: string[] }) {
+    this.transaction((state) => {
+      const index = state.channels.findIndex(
+        (channel) => channel.id === input.id,
+      )
+      if (index < 0) throw invalidRequest('Unknown channel.')
+      const old = state.channels[index]!
+      if (old.id === 'general')
+        throw invalidRequest(
+          'The general channel always includes all teammates.',
+        )
+      state.channels[index] = validateChannel(state, {
+        ...old,
+        memberIds: input.memberIds,
+      })
+    })
   }
   add(input: TeammateInput) {
     this.transaction((s) => {

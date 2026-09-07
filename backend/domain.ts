@@ -7,12 +7,18 @@ import type {
   RoomEvent,
   Teammate,
   TeammateInput,
+  Channel,
 } from '../shared/contracts.js'
 import { string, uuid } from './storage.js'
 import {
   DEFAULT_REPLY_LIMIT,
+  GENERAL_CHANNEL_ID,
   MAX_IDENTITY_LENGTH,
 } from '../shared/contracts.js'
+import {
+  channelMemberIds,
+  conversationParticipantIds,
+} from '../shared/channels.js'
 export const handlesIn = (text: string) => [
   ...new Set(
     [...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]*)\b/gi)].map((m) =>
@@ -26,6 +32,9 @@ export function newRoom(): SavedRoom {
     revision: 0,
     paused: false,
     replyLimit: DEFAULT_REPLY_LIMIT,
+    channels: [
+      { id: GENERAL_CHANNEL_ID, name: GENERAL_CHANNEL_ID, memberIds: [] },
+    ],
     workers: [],
     messages: [],
     deliveries: [],
@@ -34,6 +43,30 @@ export function newRoom(): SavedRoom {
     recentAt: null,
     refreshRequestedAt: null,
   }
+}
+export function validateChannel(
+  state: SavedRoom,
+  input: { id?: string; name: string; memberIds: string[] },
+): Channel {
+  const name = string(input.name, 'channel name').trim().toLowerCase()
+  if (!/^[a-z0-9-]{1,40}$/.test(name))
+    throw invalidRequest(
+      'Use up to 40 lowercase letters, digits or hyphens for the channel name.',
+    )
+  if (name === GENERAL_CHANNEL_ID && input.id !== GENERAL_CHANNEL_ID)
+    throw invalidRequest('The general channel name is reserved.')
+  if (
+    state.channels.some(
+      (channel) => channel.id !== input.id && channel.name === name,
+    )
+  )
+    throw invalidRequest('That channel name is already taken.')
+  if (!Array.isArray(input.memberIds))
+    throw invalidRequest('Invalid channel members.')
+  const memberIds = [...new Set(input.memberIds)]
+  if (memberIds.some((id) => !state.workers.some((worker) => worker.id === id)))
+    throw invalidRequest('Choose known teammates for this channel.')
+  return { id: input.id ?? randomUUID(), name, memberIds }
 }
 export function validateTeammate(
   state: SavedRoom,
@@ -78,6 +111,7 @@ export function sendMessage(
   text: string,
   parentId: string | null,
   attachments: ImageAttachment[] = [],
+  channelId?: string,
 ): ChatMessage {
   if (
     typeof text !== 'string' ||
@@ -90,21 +124,30 @@ export function sendMessage(
     : undefined
   if (parentId && !parent)
     throw invalidRequest('The reply target no longer exists.')
+  const selectedChannelId = parent?.channelId ?? channelId ?? GENERAL_CHANNEL_ID
+  if (parent && channelId !== undefined && channelId !== parent.channelId)
+    throw invalidRequest('A reply stays in its original channel.')
+  const channelExists = state.channels.some(
+    (channel) => channel.id === selectedChannelId,
+  )
+  if (!channelExists) throw invalidRequest('Choose an existing channel.')
+  const channelMembers = channelMemberIds(state, selectedChannelId)
   const root = parent
     ? state.messages.find((m) => m.id === parent.rootId)!
     : undefined
-  const allowed = root?.recipientIds ?? state.workers.map((w) => w.id)
+  const allDefaults = root
+    ? conversationParticipantIds(state, root.id)
+    : channelMembers
   const handles = handlesIn(text)
   const named = handles
     .filter((h) => h !== 'all')
     .map((h) => {
       const w = state.workers.find((w) => w.handle === h)
-      if (!w || !allowed.includes(w.id))
-        throw invalidRequest('Choose a teammate in this conversation.')
+      if (!w) throw invalidRequest('Choose a known teammate.')
       return w.id
     })
   const recipients = handles.includes('all')
-    ? allowed
+    ? [...new Set([...allDefaults, ...named])]
     : named.length
       ? named
       : (root?.recipientIds ?? [])
@@ -127,6 +170,7 @@ export function sendMessage(
     createdAt: Date.now(),
     recipientIds: recipients,
     roundId: id,
+    channelId: selectedChannelId,
     mode,
   }
   state.messages.push(message)
@@ -193,7 +237,10 @@ export function acceptEvent(state: SavedRoom, event: RoomEvent) {
   )
   if (
     peers.some(
-      (w) => !w || w.id === worker.id || !root.recipientIds.includes(w.id),
+      (w) =>
+        !w ||
+        w.id === worker.id ||
+        !conversationParticipantIds(state, root.id).includes(w.id),
     )
   )
     throw invalidRequest('Only address other teammates in this conversation.')
@@ -209,6 +256,7 @@ export function acceptEvent(state: SavedRoom, event: RoomEvent) {
     createdAt: Date.now(),
     recipientIds: peers.map((w) => w!.id),
     roundId: round.id,
+    channelId: root.channelId,
   }
   if (event.kind === 'progress') {
     message.deliveryId = delivery.id

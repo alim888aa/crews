@@ -20,6 +20,8 @@ Bundled helper ◄──── Native Codex relay task
 
 `backend/domain.ts` owns routing and teammate rules. `backend/room.ts` is the single writer of saved room state. External helpers publish validated event files; the app accepts them or records a rejection. State commits are atomic.
 
+Channels hold names and teammate IDs. `#general` dynamically includes every teammate. Messages carry their channel ID, while deliveries continue to reference their original message and conversation through the existing queue. Legacy saved messages default to `#general`. `shared/channels.ts` supplies channel membership and conversation participants for both recipient selection and the renderer. Conversation participants are derived from message recipients, so inviting a guest needs no separate membership record and does not change an ordered round's original recipients.
+
 `backend/relay.ts` owns frozen dispatch claims and receipts. `backend/relay-turn.ts` is compiled into the dispatcher the native relay evaluates. It forwards exact prompt strings through Codex tools and never authors worker replies.
 
 `backend/cli.ts` implements the helper commands. `backend/delivery-runtime.ts` uses Effect for receipt waiting, polling, timeouts and scoped listener cleanup. Publication happens once before receipt polling. Timeout and interruption do not republish an event. `backend/errors.ts` keeps validation, rejected events, storage failures, busy listeners and unexpected operations distinct.

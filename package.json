@@ -13,6 +13,7 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "format": "prettier --write backend shared electron scripts tests src/App.tsx src/Connections.tsx src/store.ts src/main.tsx",
     "test:images": "esbuild tests/electron-images.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-images.mjs && electron build-tests/test-images.mjs",
+    "test:channels": "esbuild tests/electron-channels.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-channels.mjs && electron build-tests/test-channels.mjs",
     "package:dmg": "npm run package:mac && node --import tsx scripts/dmg-mac.ts",
     "package:notarized": "node --import tsx scripts/notarize-mac.ts"
   },

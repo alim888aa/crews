@@ -1,5 +1,11 @@
 export const DEFAULT_REPLY_LIMIT = 32
 export const MAX_IDENTITY_LENGTH = 8000
+export const GENERAL_CHANNEL_ID = 'general'
+export interface Channel {
+  id: string
+  name: string
+  memberIds: string[]
+}
 
 export type Connection = 'new' | 'awaiting' | 'connected' | 'approval'
 export type FailureKind = 'approval' | 'uncertain' | 'task' | 'storage'
@@ -46,6 +52,7 @@ export interface ChatMessage {
   createdAt: number
   recipientIds: string[]
   roundId: string
+  channelId: string
   discussionPaused?: boolean
   mode?: 'ordered' | 'simultaneous'
   deliveryId?: string
@@ -71,6 +78,7 @@ export interface SavedRoom {
   version: 2
   revision: number
   paused: boolean
+  channels: Channel[]
   workers: Teammate[]
   messages: ChatMessage[]
   deliveries: Delivery[]
@@ -128,8 +136,14 @@ export interface CrewAPI {
   send(payload: {
     text: string
     parentId: string | null
+    channelId?: string
     attachmentIds?: string[]
   }): Promise<ChatMessage>
+  createChannel(payload: {
+    name: string
+    memberIds: string[]
+  }): Promise<Channel>
+  setChannelMembers(payload: { id: string; memberIds: string[] }): Promise<void>
   importImage(payload: {
     name: string
     bytes: Uint8Array
