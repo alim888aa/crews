@@ -304,6 +304,11 @@ function Composer({
   const allRecipients = allRecipientIds.flatMap((id) =>
     room.workers.filter((worker) => worker.id === id),
   )
+  const primaryMentionIds = new Set(allRecipientIds)
+  const mentionChoices = [
+    ...allowed.filter((worker) => primaryMentionIds.has(worker.id)),
+    ...allowed.filter((worker) => !primaryMentionIds.has(worker.id)),
+  ]
   const handles = [
     ...new Set(
       [...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]*)\b/gi)].map((m) =>
@@ -535,11 +540,14 @@ function Composer({
                 >
                   @all
                 </InputGroupButton>
-                {allowed.map((w) => (
+                {mentionChoices.map((w) => (
                   <InputGroupButton
                     key={w.id}
                     variant="ghost"
                     size="xs"
+                    className={
+                      primaryMentionIds.has(w.id) ? 'font-semibold' : undefined
+                    }
                     onClick={() => mention(w.handle)}
                     aria-label={'Mention ' + w.handle}
                   >

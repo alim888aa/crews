@@ -108,6 +108,69 @@ export class Room extends EventEmitter {
       })
     })
   }
+  deleteChannel(id: string) {
+    if (id === 'general')
+      throw invalidRequest('The general channel cannot be deleted.')
+    const removed = this.transaction((state) => {
+      if (!state.channels.some((c) => c.id === id))
+        throw invalidRequest('Unknown channel.')
+      const messages = state.messages.filter((m) => m.channelId === id)
+      const messageIds = new Set(messages.map((m) => m.id))
+      const deliveries = state.deliveries.filter((d) =>
+        messageIds.has(d.rootId),
+      )
+      // Recheck here, not when the confirmation opens: new work may have arrived.
+      if (deliveries.some((d) => d.status !== 'replied'))
+        throw invalidRequest(
+          'Finish this channel’s pending replies before deleting it.',
+        )
+      state.channels = state.channels.filter((c) => c.id !== id)
+      state.messages = state.messages.filter((m) => m.channelId !== id)
+      state.deliveries = state.deliveries.filter(
+        (d) => !messageIds.has(d.rootId),
+      )
+      return { messages, deliveries }
+    })
+    // State is committed first, so a failed save never removes files from a live chat.
+    // Disk cleanup failure is reported separately; never pretend the committed deletion rolled back.
+    try {
+      const deliveryIds = new Set(removed.deliveries.map((d) => d.id))
+      for (const deliveryId of deliveryIds) {
+        fs.rmSync(path.join(this.directory, 'claims', deliveryId), {
+          force: true,
+        })
+        fs.rmSync(receiptPath(this.directory, deliveryId), { force: true })
+      }
+      for (const folder of ['events', 'processed', 'rejected', 'compactions']) {
+        const directory = path.join(this.directory, folder)
+        if (!fs.existsSync(directory)) continue
+        for (const name of fs
+          .readdirSync(directory)
+          .filter((n) => n.endsWith('.json'))) {
+          const file = path.join(directory, name)
+          const value = optionalJSON(file) as
+            { deliveryId?: string } | undefined
+          if (value?.deliveryId && deliveryIds.has(value.deliveryId)) {
+            fs.rmSync(file, { force: true })
+            fs.rmSync(file + '.error.json', { force: true })
+          }
+        }
+      }
+    } catch (cause) {
+      this.emit(
+        'deliveryError',
+        'Channel deleted, but some local files could not be removed: ' +
+          String(cause),
+      )
+    }
+    // The renderer can preserve images used by unsent drafts in other channels.
+    // The image handler separately protects images still used by saved messages.
+    return [
+      ...new Set(
+        removed.messages.flatMap((m) => m.attachments?.map((a) => a.id) ?? []),
+      ),
+    ]
+  }
   add(input: TeammateInput) {
     this.transaction((s) => {
       if (s.workers.some((w) => w.id === input.id))

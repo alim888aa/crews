@@ -7,6 +7,7 @@ const api: CrewAPI = {
     ipcRenderer.invoke('room:create-channel', payload),
   setChannelMembers: (payload) =>
     ipcRenderer.invoke('room:channel-members', payload),
+  deleteChannel: (id) => ipcRenderer.invoke('room:delete-channel', id),
   importImage: (value) => ipcRenderer.invoke('room:image-import', value),
   pickImages: () => ipcRenderer.invoke('room:image-pick'),
   removeImage: (id) => ipcRenderer.invoke('room:image-remove', id),

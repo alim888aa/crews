@@ -144,6 +144,7 @@ export interface CrewAPI {
     memberIds: string[]
   }): Promise<Channel>
   setChannelMembers(payload: { id: string; memberIds: string[] }): Promise<void>
+  deleteChannel(id: string): Promise<string[]>
   importImage(payload: {
     name: string
     bytes: Uint8Array

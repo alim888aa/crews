@@ -161,6 +161,9 @@ else {
         })
       })
       handle('room:reply-limit', (value) => room.setReplyLimit(value))
+      handle('room:delete-channel', (value) =>
+        room.deleteChannel(string(value, 'channel ID')),
+      )
       handle('room:pause', (value) => {
         if (typeof value !== 'boolean') throw new Error('Invalid pause state.')
         room.transaction((s) => {

@@ -45,6 +45,7 @@ export const getSnapshot = () => state
 function update(next: RoomState) {
   if (next.revision >= state.revision) {
     state = next
+    pruneDeletedDrafts(next)
     listeners.forEach((fn) => fn())
   }
 }
@@ -88,7 +89,10 @@ export const subscribeDrafts = (listener: () => void) => {
 }
 export const getDrafts = () => drafts
 
-type DraftOperation = { pending?: 'sending' | 'uploading'; error: string }
+type DraftOperation = {
+  pending?: 'sending' | 'uploading' | 'deleting'
+  error: string
+}
 let draftOperations: Record<string, DraftOperation> = {}
 export const getDraftOperations = () => draftOperations
 function updateDraftOperation(key: string, value: DraftOperation) {
@@ -128,6 +132,24 @@ try {
   /* Keep text drafts usable if image drafts are damaged. */
 }
 export const getImageDrafts = () => imageDrafts
+function pruneDeletedDrafts(room: RoomState) {
+  const roots = new Set(
+    room.messages.filter((m) => m.id === m.rootId).map((m) => m.id),
+  )
+  const channels = new Set(room.channels.map((c) => c.id))
+  const valid = (key: string) =>
+    key === 'channel' ||
+    (key.startsWith('channel:') ? channels.has(key.slice(8)) : roots.has(key))
+  // Also handles a restart between the backend commit and the renderer's draft cleanup.
+  drafts = Object.fromEntries(
+    Object.entries(drafts).filter(([key]) => valid(key)),
+  )
+  imageDrafts = Object.fromEntries(
+    Object.entries(imageDrafts).filter(([key]) => valid(key)),
+  )
+  localStorage.setItem(draftKey, JSON.stringify(drafts))
+  localStorage.setItem(imageDraftKey, JSON.stringify(imageDrafts))
+}
 export function setImageDrafts(
   key: string,
   images: import('../shared/contracts').ImageAttachment[],
@@ -135,4 +157,65 @@ export function setImageDrafts(
   imageDrafts = { ...imageDrafts, [key]: images }
   localStorage.setItem(imageDraftKey, JSON.stringify(imageDrafts))
   draftListeners.forEach((fn) => fn())
+}
+
+function channelDraftKeys(channelId: string) {
+  return [
+    `channel:${channelId}`,
+    ...state.messages
+      .filter((m) => m.channelId === channelId && m.id === m.rootId)
+      .map((m) => m.id),
+  ]
+}
+
+export function channelHasDraftWork(channelId: string) {
+  return channelDraftKeys(channelId).some(
+    (key) => draftOperations[key]?.pending,
+  )
+}
+
+export async function deleteChannel(channelId: string) {
+  const keys = channelDraftKeys(channelId)
+  if (keys.some((key) => draftOperations[key]?.pending))
+    throw new Error(
+      'Finish this channel’s send or image upload before deleting it.',
+    )
+  // Lock every composer in the channel before crossing the asynchronous IPC boundary.
+  for (const key of keys)
+    updateDraftOperation(key, { pending: 'deleting', error: '' })
+  const removedImages = keys.flatMap((key) => imageDrafts[key] ?? [])
+  try {
+    const messageImageIds = await window.crew.deleteChannel(channelId)
+    drafts = Object.fromEntries(
+      Object.entries(drafts).filter(([key]) => !keys.includes(key)),
+    )
+    imageDrafts = Object.fromEntries(
+      Object.entries(imageDrafts).filter(([key]) => !keys.includes(key)),
+    )
+    localStorage.setItem(draftKey, JSON.stringify(drafts))
+    localStorage.setItem(imageDraftKey, JSON.stringify(imageDrafts))
+    const kept = new Set(
+      Object.values(imageDrafts)
+        .flat()
+        .map((a) => a.id),
+    )
+    for (const id of new Set([
+      ...messageImageIds,
+      ...removedImages.map((image) => image.id),
+    ])) {
+      if (!kept.has(id)) {
+        try {
+          await window.crew.removeImage(id)
+        } catch {
+          roomError = 'Channel deleted, but a draft image could not be removed.'
+          errorListeners.forEach((fn) => fn())
+        }
+      }
+    }
+  } finally {
+    draftOperations = Object.fromEntries(
+      Object.entries(draftOperations).filter(([key]) => !keys.includes(key)),
+    )
+    draftListeners.forEach((fn) => fn())
+  }
 }
