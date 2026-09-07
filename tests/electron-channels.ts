@@ -1,15 +1,26 @@
 /** Isolated channel UI smoke test. Never connects or messages live Codex tasks. */
-import { app, BrowserWindow, ipcMain } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  protocol,
+  nativeImage,
+  dialog,
+} from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { Room } from '../backend/room.js'
+import { registerImageHandlers } from '../electron/images.js'
 
 void (async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crews-channels-ui-'))
   app.setPath('userData', path.join(directory, 'browser'))
+  protocol.registerSchemesAsPrivileged([
+    { scheme: 'crew-image', privileges: { standard: true, secure: true } },
+  ])
   await app.whenReady()
   let room = new Room(directory)
   room.receive({
@@ -43,6 +54,18 @@ void (async () => {
   let releaseSend: (() => void) | undefined
   let holdSend = false
   let rejectMembers = false
+  let pendingSendCount = 0
+  const pickers: Array<{
+    resolve: (result: Electron.OpenDialogReturnValue) => void
+    reject: (error: Error) => void
+  }> = []
+  dialog.showOpenDialog = async () =>
+    new Promise((resolve, reject) => {
+      pickers.push({ resolve, reject })
+    })
+  registerImageHandlers(room, win, (channel, fn) =>
+    ipcMain.handle(channel, (_event, value) => fn(value)),
+  )
   ipcMain.handle('room:snapshot', () => room.snapshot())
   ipcMain.handle('room:create-channel', (_event, payload) => {
     const channel = room.createChannel(payload)
@@ -57,6 +80,7 @@ void (async () => {
   ipcMain.handle('room:send', async (_event, payload) => {
     if (holdSend)
       await new Promise<void>((resolve) => {
+        pendingSendCount++
         releaseSend = resolve
       })
     const message = room.send(payload)
@@ -130,17 +154,74 @@ void (async () => {
     await click('Open #project')
     await until(`${mainText}.value === ''`)
     await type(mainText, '@engineer delayed send')
+    // Pending image work and its errors survive the same channel remounts as sends.
+    await click('Attach images')
+    while (!pickers[0]) await new Promise((resolve) => setTimeout(resolve, 20))
+    await click('Open #general')
+    await click('Open #project')
+    assert.equal(
+      await js(
+        `document.querySelector('main [aria-label="Attach images"]').disabled`,
+      ),
+      true,
+    )
+    pickers[0]!.reject(new Error('Test picker failure'))
+    await until(
+      `document.querySelector('main.channel').textContent.includes('Test picker failure')`,
+    )
+    await click('Attach images')
+    while (!pickers[1]) await new Promise((resolve) => setTimeout(resolve, 20))
+    const imageFile = path.join(directory, 'draft.png')
+    fs.writeFileSync(
+      imageFile,
+      nativeImage
+        .createFromBitmap(Buffer.alloc(32 * 24 * 4, 180), {
+          width: 32,
+          height: 24,
+          scaleFactor: 1,
+        })
+        .toPNG(),
+    )
+    pickers[1]!.resolve({ canceled: false, filePaths: [imageFile] })
+    await until(`document.querySelector('main form img')?.naturalWidth === 32`)
     holdSend = true
     await click('Send message')
     while (!releaseSend) await new Promise((resolve) => setTimeout(resolve, 20))
     await click('Open #general')
     await until(`${mainText}.value === '@engineer general draft'`)
+    await click('Open #project')
+    await until(`${mainText}.value === '@engineer delayed send'`)
+    assert.equal(
+      await js(
+        `document.querySelector('main [aria-label="Send message"]').disabled`,
+      ),
+      true,
+    )
+    assert.equal(
+      await js(
+        `document.querySelector('main [aria-label="Attach images"]').disabled`,
+      ),
+      true,
+    )
+    await js(
+      `${mainText}.closest('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(pendingSendCount, 1)
+    await click('Open #general')
     releaseSend()
     await until(
       `!document.querySelector('main.channel').textContent.includes('delayed send')`,
     )
     await new Promise((resolve) => setTimeout(resolve, 200))
     assert.equal(room.state.messages.at(-1)!.channelId, project.id)
+    assert.equal(
+      room.state.messages.filter(
+        (message) => message.text === '@engineer delayed send',
+      ).length,
+      1,
+    )
+    assert.equal(room.state.messages.at(-1)!.attachments?.length, 1)
     assert.equal(
       await js(`document.querySelector('main h1').textContent`),
       'general',
@@ -206,7 +287,7 @@ void (async () => {
       'project',
     )
     console.log(
-      'PASS channel creation, membership save/retry, guest mentions, @all, separate drafts, delayed send/reply routing and restart',
+      'PASS channel creation, membership save/retry, guests, drafts, pending upload/send remount guards, late replies and restart',
     )
   } catch (error) {
     console.error(error)

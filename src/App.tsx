@@ -81,6 +81,10 @@ import {
   clearRoomError,
   getDrafts,
   getImageDrafts,
+  getDraftOperations,
+  beginDraftOperation,
+  endDraftOperation,
+  setDraftError,
   setImageDrafts,
   subscribeDrafts,
   setDraft,
@@ -287,10 +291,11 @@ function Composer({
   const text = drafts[draftId] ?? ''
   const imageDrafts = useSyncExternalStore(subscribeDrafts, getImageDrafts)
   const images = imageDrafts[draftId] ?? []
-  const [uploading, setUploading] = useState(false)
-  const busy = useRef(false)
-  const [error, setError] = useState('')
-  const [sending, setSending] = useState(false)
+  const operations = useSyncExternalStore(subscribeDrafts, getDraftOperations)
+  const uploading = operations[draftId]?.pending === 'uploading'
+  const sending = operations[draftId]?.pending === 'sending'
+  const error = operations[draftId]?.error ?? ''
+  const setError = (value: string) => setDraftError(draftId, value)
   const input = useRef<HTMLTextAreaElement>(null)
   const allowed = room.workers
   const allRecipientIds = root
@@ -340,10 +345,7 @@ function Composer({
     })
   }
   async function attach(load: () => Promise<ImageAttachment[]>) {
-    if (busy.current || sending) return
-    busy.current = true
-    setUploading(true)
-    setError('')
+    if (!beginDraftOperation(draftId, 'uploading')) return
     try {
       const added = await load()
       const current = getImageDrafts()[draftId] ?? []
@@ -355,8 +357,7 @@ function Composer({
     } catch (e) {
       setError(errorText(e))
     } finally {
-      busy.current = false
-      setUploading(false)
+      endDraftOperation(draftId)
       input.current?.focus()
     }
   }
@@ -382,6 +383,7 @@ function Composer({
     }
   }
   async function removeImage(id: string) {
+    if (!beginDraftOperation(draftId, 'uploading')) return
     try {
       await window.crew.removeImage(id)
       setImageDrafts(
@@ -390,19 +392,14 @@ function Composer({
       )
     } catch (error) {
       setError(errorText(error))
+    } finally {
+      endDraftOperation(draftId)
     }
   }
   async function send() {
-    if (
-      sending ||
-      busy.current ||
-      (!text.trim() && !images.length) ||
-      !recipients.length ||
-      unknown
-    )
+    if ((!text.trim() && !images.length) || !recipients.length || unknown)
       return
-    setSending(true)
-    setError('')
+    if (!beginDraftOperation(draftId, 'sending')) return
     try {
       const message = await window.crew.send({
         text,
@@ -422,7 +419,7 @@ function Composer({
     } catch (e) {
       setError(errorText(e))
     } finally {
-      setSending(false)
+      endDraftOperation(draftId)
     }
   }
   return (

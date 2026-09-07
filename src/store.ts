@@ -87,6 +87,30 @@ export const subscribeDrafts = (listener: () => void) => {
   }
 }
 export const getDrafts = () => drafts
+
+type DraftOperation = { pending?: 'sending' | 'uploading'; error: string }
+let draftOperations: Record<string, DraftOperation> = {}
+export const getDraftOperations = () => draftOperations
+function updateDraftOperation(key: string, value: DraftOperation) {
+  draftOperations = { ...draftOperations, [key]: value }
+  draftListeners.forEach((fn) => fn())
+}
+// Keep pending work across Composer remounts, but never persist a stale lock on restart.
+export function beginDraftOperation(
+  key: string,
+  pending: 'sending' | 'uploading',
+) {
+  if (draftOperations[key]?.pending) return false
+  updateDraftOperation(key, { pending, error: '' })
+  return true
+}
+export function endDraftOperation(key: string) {
+  updateDraftOperation(key, { error: draftOperations[key]?.error ?? '' })
+}
+export function setDraftError(key: string, error: string) {
+  updateDraftOperation(key, { ...draftOperations[key], error })
+}
+
 export function setDraft(key: string, value: string) {
   drafts = { ...drafts, [key]: value }
   localStorage.setItem(draftKey, JSON.stringify(drafts))
