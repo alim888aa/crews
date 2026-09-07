@@ -22,11 +22,14 @@ import {
 import { readState } from './room.js'
 import { runtimeConfig, codexHooksFile } from './paths.js'
 import { installContextHooks } from './hooks.js'
+import { loadIdentity } from './identity.js'
 import { envelope, inFlight, mark } from './relay.js'
 import { decodeEvent } from './schema.js'
 
 const runtime = path.dirname(fileURLToPath(import.meta.url))
 const [command, id, token, detail] = process.argv.slice(2)
+// A checkpoint is saved only after the helper emits its response.
+let recordIdentity: (() => void) | undefined
 type Config = ReturnType<typeof runtimeConfig>
 type Command = Effect.Effect<unknown, BackendError, DeliveryRuntime>
 
@@ -130,9 +133,13 @@ function dispatch(config: Config, state: SavedRoom): Command {
           attempt('refresh delivery conversation', () => {
             const fresh = readState(directory)
             const current = fresh.deliveries.find((d) => d.id === delivery.id)!
-            return current.status === 'replied'
-              ? { completed: true }
-              : envelope(fresh, current, directory)
+            if (current.status === 'replied') return { completed: true }
+            const identity = loadIdentity(fresh, directory, worker.id, false)
+            recordIdentity = identity?.recordEmitted
+            return {
+              ...envelope(fresh, current, directory),
+              ...(identity ? { identityUpdate: identity.context } : {}),
+            }
           }),
         ),
       )
@@ -206,6 +213,11 @@ const program = Effect.gen(function* () {
   )
 }).pipe(
   Effect.tap((value) => Effect.sync(() => console.log(JSON.stringify(value)))),
+  Effect.tap(() =>
+    attempt('record delivered identity', () => recordIdentity?.()).pipe(
+      Effect.catchAll(() => Effect.void),
+    ),
+  ),
   Effect.catchAllCause((cause) =>
     Effect.sync(() => {
       if (!Cause.isInterruptedOnly(cause)) {

@@ -506,3 +506,67 @@ test('dispatcher never forwards an incomplete prompt', async () => {
   )
   assert.equal(sends, 0)
 })
+
+test('take refreshes identity without a prompt hook, then deduplicates and clears it', async (t) => {
+  const { dir, runtime, room, cli } = fixture(t)
+  const worker = randomUUID()
+  room.receive({
+    kind: 'relay',
+    taskId: randomUUID(),
+    automationId: 'test',
+    token: room.state.relay.token,
+  })
+  room.receive({
+    kind: 'catalog',
+    tasks: [{ id: worker, title: 'Intern', updatedAt: 1, cwd: '' }],
+  })
+  room.add({
+    id: worker,
+    title: 'Intern',
+    handle: 'intern',
+    identity: 'Desk label COBALT',
+  })
+  const approval = room.beginApproval(worker)
+  await exec(process.execPath, [cli, 'connect', worker, approval.token])
+  room.send({ text: '@intern What is your desk label?', parentId: null })
+  const [job] = claimBatch(dir, runtime, [process.execPath])
+  assert.ok(job)
+  const take = async () =>
+    JSON.parse(
+      (await exec(process.execPath, [cli, 'take', worker, job.deliveryId]))
+        .stdout,
+    )
+  assert.match((await take()).identityUpdate, /Desk label COBALT/)
+  assert.equal((await take()).identityUpdate, undefined)
+  room.edit({
+    id: worker,
+    title: 'Intern',
+    handle: 'intern',
+    identity: 'Desk label AMBER',
+  })
+  assert.match((await take()).identityUpdate, /Desk label AMBER/)
+  // A normal prompt hook shares the checkpoint instead of injecting the same brief again.
+  const hook = spawn(
+    process.execPath,
+    [path.join(runtime, 'context-hook.mjs')],
+    { env: { ...process.env, CODEX_THREAD_ID: worker } },
+  )
+  let output = ''
+  hook.stdout.on('data', (chunk) => {
+    output += String(chunk)
+  })
+  const ended = new Promise<number | null>((resolve) =>
+    hook.once('close', resolve),
+  )
+  hook.stdin.end(
+    JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: worker }),
+  )
+  assert.equal(await ended, 0)
+  assert.equal(output, '')
+  room.edit({ id: worker, title: 'Intern', handle: 'intern', identity: '' })
+  assert.match(
+    (await take()).identityUpdate,
+    /cleared the Crews teammate identity/,
+  )
+  assert.equal((await take()).identityUpdate, undefined)
+})
