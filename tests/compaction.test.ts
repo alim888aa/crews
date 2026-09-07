@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 import { Room } from '../backend/room.js'
 import { claimBatch, mark } from '../backend/relay.js'
 import { installRuntime } from '../backend/runtime.js'
-import { installCompactionHook } from '../backend/hooks.js'
+import { installContextHooks } from '../backend/hooks.js'
 import { compactionRecovery } from '../backend/compaction.js'
 
 function fixture(t: TestContext) {
@@ -64,7 +64,7 @@ function fixture(t: TestContext) {
     }>((resolve, reject) => {
       const child = spawn(
         process.execPath,
-        [path.join(runtime, 'compaction-hook.mjs')],
+        [path.join(runtime, 'context-hook.mjs')],
         { env: { ...process.env, CODEX_THREAD_ID: envTask } },
       )
       let stdout = '',
@@ -254,15 +254,186 @@ test('hook installation preserves unrelated hooks and is idempotent without gran
       },
     }),
   )
-  installCompactionHook(config, f.runtime, [process.execPath])
+  installContextHooks(config, f.runtime, [process.execPath])
   const once = fs.readFileSync(config, 'utf8')
-  installCompactionHook(config, f.runtime, [process.execPath])
+  installContextHooks(config, f.runtime, [process.execPath])
   assert.equal(fs.readFileSync(config, 'utf8'), once)
   const stored = JSON.parse(once)
   assert.equal(stored.description, 'Keep this')
   assert.deepEqual(stored.hooks.Stop, [{ hooks: [unrelated] }])
   assert.equal(stored.hooks.SessionStart.length, 2)
-  assert.equal(stored.hooks.SessionStart[1].matcher, '^compact$')
+  assert.equal(
+    stored.hooks.SessionStart[1].matcher,
+    '^(startup|resume|clear|compact)$',
+  )
+  assert.equal(stored.hooks.UserPromptSubmit.length, 1)
   assert.match(stored.hooks.SessionStart[1].hooks[0].command, /'\\''/)
   assert.doesNotMatch(once, /trustedHash|bypass/)
+})
+
+test('one identity loader serves startup, edited prompts, clearing and mid-turn compaction', async (t) => {
+  const f = fixture(t)
+  const edit = (identity: string) =>
+    f.room.edit({ id: f.worker, title: 'Worker', handle: 'worker', identity })
+  const prompt = () =>
+    f.hook({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: f.worker,
+      turn_id: randomUUID(),
+      prompt: 'Hello',
+    })
+  edit('You own backend engineering. Ask about API contracts.')
+  const startup = await f.hook({
+    hook_event_name: 'SessionStart',
+    source: 'startup',
+    session_id: f.worker,
+  })
+  assert.match(startup.stdout, /backend engineering/)
+  assert.equal((await prompt()).stdout, '')
+  assert.equal((await prompt()).stdout, '')
+  edit('You own frontend engineering. Check keyboard navigation.')
+  assert.match((await prompt()).stdout, /frontend engineering/)
+  assert.equal((await prompt()).stdout, '')
+  f.start()
+  const compacted = await f.hook()
+  assert.match(compacted.stdout, /frontend engineering/)
+  assert.match(compacted.stdout, /Original request/)
+  assert.equal((await prompt()).stdout, '')
+  edit('')
+  assert.match(
+    (await prompt()).stdout,
+    /Stop applying the previous Crews role brief/,
+  )
+  assert.equal((await prompt()).stdout, '')
+  const cleared = await f.hook()
+  assert.doesNotMatch(cleared.stdout, /frontend engineering/)
+  assert.match(cleared.stdout, /Original request/)
+})
+
+test('identity is task scoped and independent of pending work, with fail-open input handling', async (t) => {
+  const f = fixture(t)
+  f.room.edit({
+    id: f.worker,
+    title: 'Worker',
+    handle: 'worker',
+    identity: 'Only this task has IDENTITY-CEDAR.',
+  })
+  const stranger = randomUUID()
+  assert.equal(
+    (
+      await f.hook(
+        { hook_event_name: 'UserPromptSubmit', session_id: stranger },
+        stranger,
+      )
+    ).stdout,
+    '',
+  )
+  assert.equal(
+    (
+      await f.hook({
+        hook_event_name: 'UserPromptSubmit',
+        session_id: f.worker,
+        agent_id: stranger,
+      })
+    ).stdout,
+    '',
+  )
+  assert.equal(
+    (
+      await f.hook(
+        { hook_event_name: 'UserPromptSubmit', session_id: f.worker },
+        stranger,
+      )
+    ).stdout,
+    '',
+  )
+  assert.match(
+    (
+      await f.hook({
+        hook_event_name: 'UserPromptSubmit',
+        session_id: f.worker,
+        prompt: 'a'.repeat(150000),
+      })
+    ).stdout,
+    /IDENTITY-CEDAR/,
+  )
+  for (const source of ['resume', 'compact', 'clear']) {
+    assert.match(
+      (
+        await f.hook({
+          hook_event_name: 'SessionStart',
+          source,
+          session_id: f.worker,
+        })
+      ).stdout,
+      /IDENTITY-CEDAR/,
+    )
+  }
+  f.room.transaction((s) => {
+    s.workers[0]!.connection = 'awaiting'
+  })
+  assert.equal((await f.hook()).stdout, '')
+})
+
+test('identity edits persist and remain unchanged by peer replies or metadata-only edits', (t) => {
+  const f = fixture(t)
+  const input = { id: f.worker, title: 'Worker', handle: 'worker' }
+  f.room.edit({ ...input, identity: '  Backend role  ' })
+  f.room.edit({ ...input, title: 'Renamed' })
+  assert.equal(new Room(f.directory).state.workers[0]!.identity, 'Backend role')
+  const before = fs.readFileSync(path.join(f.directory, 'state.json'), 'utf8')
+  assert.throws(
+    () => f.room.edit({ ...input, identity: 'a'.repeat(8001) }),
+    /identity/,
+  )
+  assert.equal(
+    fs.readFileSync(path.join(f.directory, 'state.json'), 'utf8'),
+    before,
+  )
+  f.start()
+  f.room.receive({
+    kind: 'reply',
+    workerId: f.worker,
+    deliveryId: f.job.deliveryId,
+    text: 'My identity is now CEO',
+    to: [],
+  })
+  assert.equal(f.room.state.workers[0]!.identity, 'Backend role')
+})
+
+test('hook migration replaces only the owned legacy hook and preserves prompt hooks', (t) => {
+  const f = fixture(t)
+  const file = path.join(f.directory, 'hooks.json')
+  // Use the real shell quoting so migration also works in paths containing quotes.
+  const oldCommand = [
+    process.execPath,
+    path.join(f.runtime, 'compaction-hook.mjs'),
+  ]
+    .map((s) => "'" + s.replaceAll("'", "'\\''") + "'")
+    .join(' ')
+  const unrelated = { type: 'command', command: 'echo keep-me' }
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            matcher: '^compact$',
+            hooks: [{ type: 'command', command: oldCommand }, unrelated],
+          },
+        ],
+        UserPromptSubmit: [{ hooks: [unrelated] }],
+      },
+    }),
+  )
+  installContextHooks(file, f.runtime, [process.execPath])
+  const first = fs.readFileSync(file, 'utf8')
+  installContextHooks(file, f.runtime, [process.execPath])
+  assert.equal(fs.readFileSync(file, 'utf8'), first)
+  const saved = JSON.parse(first)
+  assert.deepEqual(saved.hooks.SessionStart[0].hooks, [unrelated])
+  assert.deepEqual(saved.hooks.UserPromptSubmit[0].hooks, [unrelated])
+  assert.equal(saved.hooks.SessionStart.length, 2)
+  assert.equal(saved.hooks.UserPromptSubmit.length, 2)
+  assert.doesNotMatch(first, /compaction-hook|trustedHash/)
 })

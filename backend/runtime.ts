@@ -9,7 +9,7 @@ export function installRuntime(
   executable: string[],
 ) {
   fs.mkdirSync(runtime, { recursive: true, mode: 0o700 })
-  for (const file of ['cli.mjs', 'relay-turn.js', 'compaction-hook.mjs']) {
+  for (const file of ['cli.mjs', 'relay-turn.js', 'context-hook.mjs']) {
     const target = path.join(runtime, file)
     fs.writeFileSync(target + '.tmp', fs.readFileSync(path.join(build, file)), {
       mode: 0o600,
@@ -42,7 +42,7 @@ export function installRuntime(
 
 The user submitted this setup request directly in this task. This exact task becomes the relay; do not create another task. Use only native Codex task and automation tools. App data is ${directory}. Runtime is ${runtime}.
 
-Install the compaction recovery hook with ${cli} install-hook. This preserves unrelated hooks and does not grant trust. Tell the user to review the exact "Restoring Crews request" hook in Codex's hooks settings (or /hooks in the CLI). Never bypass hook trust or claim recovery is active before the hook is trusted. The hook restores only an acknowledged unfinished delivery belonging to the compacted task; it does not forward, retry, or execute project work.
+Install the Crews context hooks with ${cli} install-hook. This preserves unrelated hooks and does not grant trust. Tell the user to review both exact "Loading Crews context" hooks in Codex's hooks settings (or /hooks in the CLI). Never bypass hook trust or claim recovery is active before the hook is trusted. The shared context hook loads only the saved identity for the exact connected task on startup, resume or compaction, and checks for identity edits on user messages. Unchanged identities add no message-time context. After compaction it also restores an acknowledged unfinished room delivery for that task. It never forwards, retries, or executes project work.
 
 1. Run ${cli} status. It returns currentTaskId from this native task's CODEX_THREAD_ID, plus saved relay ID, automation ID and setup token. Never override CODEX_THREAD_ID. If it is unavailable, use native set_thread_title to name this task Crews Relay followed by the full setup token, then native list_threads to identify that exact unique title and its data-folder cwd. Stop if identity is ambiguous. If a different relay ID is already saved, stop and ask the user to use Repair connection in Crews to open the correct task.
 2. If no relay is saved, record this current task ID with ${cli} register CURRENT_TASK_ID pending SETUP_TOKEN. Wait for accepted:true. You may rename this task Crews Relay using the native title tool. This is the same directly approved task.

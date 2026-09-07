@@ -21,7 +21,7 @@ import {
 } from './delivery-runtime.js'
 import { readState } from './room.js'
 import { runtimeConfig, codexHooksFile } from './paths.js'
-import { installCompactionHook } from './hooks.js'
+import { installContextHooks } from './hooks.js'
 import { envelope, inFlight, mark } from './relay.js'
 import { decodeEvent } from './schema.js'
 
@@ -190,8 +190,8 @@ function dispatch(config: Config, state: SavedRoom): Command {
 const program = Effect.gen(function* () {
   const config = yield* attempt('load runtime configuration', runtimeConfig)
   if (command === 'install-hook')
-    return yield* attempt('install compaction recovery hook', () => ({
-      ...installCompactionHook(codexHooksFile(), runtime, config.nodeCommand),
+    return yield* attempt('install Crews context hooks', () => ({
+      ...installContextHooks(codexHooksFile(), runtime, config.nodeCommand),
       installed: true,
       trustRequired: true,
     }))

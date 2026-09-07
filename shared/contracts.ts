@@ -1,8 +1,16 @@
 export const DEFAULT_REPLY_LIMIT = 32
+export const MAX_IDENTITY_LENGTH = 8000
 
 export type Connection = 'new' | 'awaiting' | 'connected' | 'approval'
 export type FailureKind = 'approval' | 'uncertain' | 'task' | 'storage'
+export interface TeammateInput {
+  id: string
+  title: string
+  handle: string
+  identity?: string
+}
 export interface Teammate {
+  identity?: string
   id: string
   handle: string
   title: string
@@ -131,8 +139,9 @@ export interface CrewAPI {
   pause(paused: boolean): Promise<void>
   setReplyLimit(value: number): Promise<void>
   setup(): Promise<Approval>
-  add(payload: { id: string; title: string; handle: string }): Promise<void>
-  edit(payload: { id: string; title: string; handle: string }): Promise<void>
+  installContextHooks(): Promise<void>
+  add(payload: TeammateInput): Promise<void>
+  edit(payload: TeammateInput): Promise<void>
   approval(id: string): Promise<Approval>
   copyOpen(approval: { id: string }): Promise<void>
   refreshTasks(): Promise<void>

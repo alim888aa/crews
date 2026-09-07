@@ -45,3 +45,12 @@ No database server or hosted Crews service is required. The native relay and wor
 The relay cannot supply fresh user permission to another task. Connecting and reapproving must happen through direct user submissions in Codex. Files shared under one local account are not an isolation boundary against malicious processes or tasks.
 
 Generated JavaScript lives in ignored build directories. Maintained app code, scripts and tests are TypeScript.
+
+
+## Teammate identity
+
+The optional `Teammate.identity` is user-edited through the existing teammate form and validated on the app IPC boundary. Peer reply events cannot edit identities. `backend/identity.ts` owns loading the brief and its per-task emitted-context hash under `data/identities/`. The hash is a deduplication checkpoint, not proof that the model followed the brief. A missing or damaged checkpoint causes reinjection.
+
+Both `SessionStart` and `UserPromptSubmit` call the same `context-hook.mjs` entrypoint. It validates the exact root task ID and ignores subagents. Session starts, resumes, clears and compactions restore the identity; ordinary prompts emit only a changed identity or a removal notice. A connected task can retain its role while chatting directly in Codex or while room delivery is paused. Identity injection does not dispatch messages or grant access.
+
+The entrypoint also restores an acknowledged unfinished room request on compaction using the existing delivery recovery rules. This is independent of whether an identity changed. Hook installation preserves unrelated handlers, replaces this runtime's old compaction handler, and never writes hook trust. Codex's normal review is required before either definition runs.

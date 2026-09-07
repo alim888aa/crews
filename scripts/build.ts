@@ -19,8 +19,8 @@ await build({
   target: 'node22',
 })
 await build({
-  entryPoints: ['backend/compaction-hook.ts'],
-  outfile: 'build/compaction-hook.mjs',
+  entryPoints: ['backend/context-hook.ts'],
+  outfile: 'build/context-hook.mjs',
   bundle: true,
   platform: 'node',
   format: 'esm',

@@ -10,6 +10,7 @@ import type {
   RoomEvent,
   Receipt,
   Teammate,
+  TeammateInput,
 } from '../shared/contracts.js'
 import {
   acceptEvent,
@@ -81,7 +82,7 @@ export class Room extends EventEmitter {
       sendMessage(s, payload.text, payload.parentId, images),
     )
   }
-  add(input: { id: string; title: string; handle: string }) {
+  add(input: TeammateInput) {
     this.transaction((s) => {
       if (s.workers.some((w) => w.id === input.id))
         throw invalidRequest('This task is already in the room.')
@@ -92,7 +93,7 @@ export class Room extends EventEmitter {
       s.workers.push(validateTeammate(s, input))
     })
   }
-  edit(input: { id: string; title: string; handle: string }) {
+  edit(input: TeammateInput) {
     this.transaction((s) => {
       const index = s.workers.findIndex((w) => w.id === input.id)
       if (index < 0) throw invalidRequest('Unknown teammate.')

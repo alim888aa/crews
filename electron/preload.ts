@@ -8,6 +8,7 @@ const api: CrewAPI = {
   removeImage: (id) => ipcRenderer.invoke('room:image-remove', id),
   setReplyLimit: (value) => ipcRenderer.invoke('room:reply-limit', value),
   pause: (value) => ipcRenderer.invoke('room:pause', value),
+  installContextHooks: () => ipcRenderer.invoke('room:context-hooks'),
   setup: () => ipcRenderer.invoke('room:setup'),
   add: (value) => ipcRenderer.invoke('room:add', value),
   edit: (value) => ipcRenderer.invoke('room:edit', value),

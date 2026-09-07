@@ -1,3 +1,5 @@
+import { MAX_IDENTITY_LENGTH } from '../shared/contracts'
+import { Textarea } from '@/components/ui/textarea'
 import { useState } from 'react'
 import {
   ArrowLeft,
@@ -172,12 +174,15 @@ export function Teammates({
     initial,
   )
   const [title, setTitle] = useState(initial?.title ?? ''),
-    [handle, setHandle] = useState(initial?.handle ?? '')
+    [handle, setHandle] = useState(initial?.handle ?? ''),
+    [identity, setIdentity] = useState(initial?.identity ?? '')
   const [approval, setApproval] = useState<Approval | null>(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [copied, setCopied] = useState(false)
   const [filter, setFilter] = useState('')
+  const [hooksInstalled, setHooksInstalled] = useState(false)
+  const [installingHooks, setInstallingHooks] = useState(false)
   const existing = state.workers.find((w) => w.id === selected?.id)
   const waiting =
     !!state.refreshRequestedAt &&
@@ -188,6 +193,7 @@ export function Teammates({
   function choose(task: RecentTask | Worker) {
     setSelected(task)
     setTitle(task.title)
+    setIdentity('identity' in task ? (task.identity ?? '') : '')
     setHandle(
       'handle' in task
         ? task.handle
@@ -207,7 +213,7 @@ export function Teammates({
     setBusy(true)
     setError('')
     try {
-      const input = { id: selected.id, title, handle }
+      const input = { id: selected.id, title, handle, identity }
       if (existing) await window.crew.edit(input)
       else await window.crew.add(input)
       if (existing?.connection === 'connected') {
@@ -362,6 +368,48 @@ export function Teammates({
                   required
                   aria-invalid={!!error}
                 />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="teammate-identity">Identity</FieldLabel>
+                <Textarea
+                  id="teammate-identity"
+                  value={identity}
+                  maxLength={MAX_IDENTITY_LENGTH}
+                  className="min-h-32 max-h-60"
+                  placeholder="Their role, responsibilities, and how you want them to work."
+                  onChange={(event) => setIdentity(event.target.value)}
+                  aria-describedby="identity-help"
+                />
+                <p id="identity-help" className="text-xs text-muted-foreground">
+                  Applies only to this task. Requires the Crews context hooks to
+                  be trusted in Codex.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={installingHooks}
+                  onClick={async () => {
+                    setInstallingHooks(true)
+                    setError('')
+                    try {
+                      await window.crew.installContextHooks()
+                      setHooksInstalled(true)
+                    } catch (error) {
+                      setError(errorText(error))
+                    } finally {
+                      setInstallingHooks(false)
+                    }
+                  }}
+                >
+                  {installingHooks ? 'Installing…' : 'Install context hooks'}
+                </Button>
+                {hooksInstalled && (
+                  <p role="status" className="text-xs text-muted-foreground">
+                    Installed. Review both “Loading Crews context” hooks in
+                    Codex’s hook settings before using identities.
+                  </p>
+                )}
               </Field>
             </FieldGroup>
             {existing && (

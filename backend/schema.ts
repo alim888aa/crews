@@ -1,5 +1,8 @@
 import { Schema } from 'effect'
-import { DEFAULT_REPLY_LIMIT } from '../shared/contracts.js'
+import {
+  DEFAULT_REPLY_LIMIT,
+  MAX_IDENTITY_LENGTH,
+} from '../shared/contracts.js'
 export const ReplyLimitSchema = Schema.Number.pipe(
   Schema.int(),
   Schema.positive(),
@@ -55,6 +58,9 @@ const Delivery = Schema.Struct({
   replyId: Schema.optional(ID),
 })
 const Worker = Schema.Struct({
+  identity: Schema.optional(
+    Schema.String.pipe(Schema.maxLength(MAX_IDENTITY_LENGTH)),
+  ),
   id: ID,
   handle: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9-]{0,31}$/)),
   title: Text,

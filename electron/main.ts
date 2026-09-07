@@ -1,3 +1,4 @@
+import { installContextHooks } from '../backend/hooks.js'
 import {
   app,
   BrowserWindow,
@@ -18,6 +19,7 @@ import { Room } from '../backend/room.js'
 import { atomicWrite, object, string, uuid } from '../backend/storage.js'
 import {
   dataDirectory,
+  codexHooksFile,
   supportDirectory,
   runtimeDirectory,
 } from '../backend/paths.js'
@@ -112,8 +114,19 @@ else {
           id: uuid(v.id),
           title: string(v.title, 'name').trim(),
           handle: string(v.handle, '@name').trim().toLowerCase(),
+          ...(v.identity === undefined
+            ? {}
+            : {
+                identity:
+                  typeof v.identity === 'string'
+                    ? v.identity
+                    : string(v.identity, 'identity'),
+              }),
         }
       }
+      handle('room:context-hooks', () => {
+        installContextHooks(codexHooksFile(), runtime, executable)
+      })
       handle('room:snapshot', () => room.snapshot())
       handle('room:send', (value) => {
         const v = object(value)

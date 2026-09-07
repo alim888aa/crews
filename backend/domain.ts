@@ -6,9 +6,13 @@ import type {
   ChatMessage,
   RoomEvent,
   Teammate,
+  TeammateInput,
 } from '../shared/contracts.js'
 import { string, uuid } from './storage.js'
-import { DEFAULT_REPLY_LIMIT } from '../shared/contracts.js'
+import {
+  DEFAULT_REPLY_LIMIT,
+  MAX_IDENTITY_LENGTH,
+} from '../shared/contracts.js'
 export const handlesIn = (text: string) => [
   ...new Set(
     [...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]*)\b/gi)].map((m) =>
@@ -33,7 +37,7 @@ export function newRoom(): SavedRoom {
 }
 export function validateTeammate(
   state: SavedRoom,
-  input: { id: string; handle: string; title: string },
+  input: TeammateInput,
 ): Teammate {
   uuid(input.id)
   string(input.title, 'name')
@@ -50,8 +54,14 @@ export function validateTeammate(
       'The relay delivers messages; choose a different task as a teammate.',
     )
   const old = state.workers.find((w) => w.id === input.id)
+  const identity = input.identity ?? old?.identity ?? ''
+  if (typeof identity !== 'string' || identity.length > MAX_IDENTITY_LENGTH)
+    throw invalidRequest(
+      `Keep the identity under ${MAX_IDENTITY_LENGTH} characters.`,
+    )
   return {
     ...input,
+    identity: identity.trim(),
     initials: input.title
       .split(/\s+/)
       .slice(0, 2)

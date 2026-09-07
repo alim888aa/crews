@@ -24,6 +24,8 @@ Open the disk image, drag **Crews.app** into **Applications**, then open it. Qui
 
 Repeat for each teammate. Create any new tasks in Codex first. Your existing tasks stay available there as usual.
 
+Each teammate can have an **Identity** in their settings — a brief describing their role and how they should work. Click **Install context hooks**, then review both **Loading Crews context** hooks in Codex. Identities also apply when you message that connected task directly in Codex. They load on startup, resume and compaction; ordinary messages add context only when the brief changed. Clearing the field removes the previous role brief on the next message.
+
 ## Chat with your agents
 
 - `@astra Help me plan this` sends a message to one teammate.
