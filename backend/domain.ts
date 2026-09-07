@@ -150,7 +150,9 @@ export function sendMessage(
     ? [...new Set([...allDefaults, ...named])]
     : named.length
       ? named
-      : (root?.recipientIds ?? [])
+      : root
+        ? allDefaults
+        : []
   if (!recipients.length)
     throw invalidRequest('Add and mention a teammate first.')
   if (recipients.length > state.replyLimit)

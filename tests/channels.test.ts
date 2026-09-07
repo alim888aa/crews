@@ -122,6 +122,41 @@ test('channel routing supports guests while @all stays scoped to the conversatio
   )
 })
 
+test('plain followups include guests invited after the conversation started', (t) => {
+  const { room } = fixture(t)
+  room.transaction((state) => {
+    state.workers = populatedRoom().workers
+  })
+  const [member, guest] = room.state.workers
+  const channel = room.createChannel({
+    name: 'project',
+    memberIds: [member!.id],
+  })
+  const root = room.send({
+    text: '@one start',
+    parentId: null,
+    channelId: channel.id,
+  })
+  const invitation = room.send({ text: '@two join us', parentId: root.id })
+  const followup = room.send({
+    text: 'What do you both think?',
+    parentId: invitation.id,
+  })
+  assert.deepEqual(followup.recipientIds, [member!.id, guest!.id])
+  assert.deepEqual(
+    room.state.deliveries
+      .filter((delivery) => delivery.roundId === followup.id)
+      .map((delivery) => delivery.workerId),
+    [member!.id, guest!.id],
+  )
+  assert.deepEqual(root.recipientIds, [member!.id])
+  assert.deepEqual(room.state.channels.at(-1)!.memberIds, [member!.id])
+  assert.equal(followup.channelId, channel.id)
+  assert.throws(() =>
+    room.send({ text: 'No mention', parentId: null, channelId: channel.id }),
+  )
+})
+
 test('peer followups stay with current participants after channel membership changes', () => {
   const room = populatedRoom()
   const channelId = randomUUID()
