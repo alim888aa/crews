@@ -132,6 +132,20 @@ try {
   /* Keep text drafts usable if image drafts are damaged. */
 }
 export const getImageDrafts = () => imageDrafts
+let draftCleanupPending = false
+function persistDraftCleanup() {
+  try {
+    localStorage.setItem(draftKey, JSON.stringify(drafts))
+    localStorage.setItem(imageDraftKey, JSON.stringify(imageDrafts))
+    draftCleanupPending = false
+  } catch {
+    // A committed room update must still reach the UI when local storage fails.
+    draftCleanupPending = true
+    roomError =
+      'Some deleted drafts could not be cleared from this device’s storage. Your room changes were saved.'
+    errorListeners.forEach((fn) => fn())
+  }
+}
 function pruneDeletedDrafts(room: RoomState) {
   const roots = new Set(
     room.messages.filter((m) => m.id === m.rootId).map((m) => m.id),
@@ -141,14 +155,16 @@ function pruneDeletedDrafts(room: RoomState) {
     key === 'channel' ||
     (key.startsWith('channel:') ? channels.has(key.slice(8)) : roots.has(key))
   // Also handles a restart between the backend commit and the renderer's draft cleanup.
-  drafts = Object.fromEntries(
-    Object.entries(drafts).filter(([key]) => valid(key)),
-  )
-  imageDrafts = Object.fromEntries(
-    Object.entries(imageDrafts).filter(([key]) => valid(key)),
-  )
-  localStorage.setItem(draftKey, JSON.stringify(drafts))
-  localStorage.setItem(imageDraftKey, JSON.stringify(imageDrafts))
+  const nextDrafts = Object.entries(drafts).filter(([key]) => valid(key))
+  const nextImages = Object.entries(imageDrafts).filter(([key]) => valid(key))
+  const changed =
+    nextDrafts.length !== Object.keys(drafts).length ||
+    nextImages.length !== Object.keys(imageDrafts).length
+  if (changed) {
+    drafts = Object.fromEntries(nextDrafts)
+    imageDrafts = Object.fromEntries(nextImages)
+  }
+  if (changed || draftCleanupPending) persistDraftCleanup()
 }
 export function setImageDrafts(
   key: string,
@@ -192,8 +208,7 @@ export async function deleteChannel(channelId: string) {
     imageDrafts = Object.fromEntries(
       Object.entries(imageDrafts).filter(([key]) => !keys.includes(key)),
     )
-    localStorage.setItem(draftKey, JSON.stringify(drafts))
-    localStorage.setItem(imageDraftKey, JSON.stringify(imageDrafts))
+    persistDraftCleanup()
     const kept = new Set(
       Object.values(imageDrafts)
         .flat()
