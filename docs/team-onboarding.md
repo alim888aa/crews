@@ -14,11 +14,11 @@ Each new task must report its actual working directory and injected approval/san
 
 ## Effectiveness assessment
 
-Record results in separate lead, qa, and intern reports in this project's docs/team-evaluation directory. Include completed assignment, evidence paths, checks, actual blockers, user approval interruptions, and any unsupported assumptions discovered. Use one bounded coordination exchange to confirm that a concrete handoff reaches its recipient. The lead should compare these reports against the actual artifacts and report pass, partial, or blocked for editing, checks, coordination, and independent review. Do not manufacture work or repeat passing checks just to keep tasks active.
+Do not create evaluation reports or a repository documentation system. Return concise findings directly in the task, including checks, blockers and any approval interruptions. Agent knowledge and documentation are a future Crews product discussion, requiring the user's input before implementation. Use one bounded coordination exchange to confirm that a concrete handoff reaches its recipient. The lead should compare these reports against the actual artifacts and report pass, partial, or blocked for editing, checks, coordination, and independent review. Do not manufacture work or repeat passing checks just to keep tasks active.
 
 ## Known limits
 
-The new Codex project still needs registration before native tasks can be created inside it. New tasks have not yet been created or connected, so team effectiveness is not assessed.
+The new Codex project is registered at /Users/andyba/crews. Native task onboarding is in progress; room connections and effectiveness still require verification.
 
 The desktop permission menu reverted to Approve for me during task switching even after local full-access configs worked temporarily. Moving the source does not prove that this issue is fixed. Keep other tasks, including Astra main, unchanged.
 
