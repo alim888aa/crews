@@ -581,6 +581,7 @@ export default function App() {
   const conversation = root
     ? state.messages.filter((m) => m.rootId === root.id)
     : []
+  const activityAnchor = conversation.at(-1)?.id
   const target =
     root && replyTargets[root.id]
       ? state.messages.find((m) => m.id === replyTargets[root.id])
@@ -1026,7 +1027,12 @@ export default function App() {
                             })
                           }
                         >
-                          <ConversationActivity room={state} messageId={m.id} />
+                          {m.id === activityAnchor && (
+                            <ConversationActivity
+                              room={state}
+                              rootId={root.id}
+                            />
+                          )}
                         </MessageRow>
                       )}
                     />
