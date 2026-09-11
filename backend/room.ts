@@ -177,7 +177,7 @@ export class Room extends EventEmitter {
         throw invalidRequest('This task is already in the room.')
       if (!s.recent.some((t) => t.id === input.id))
         throw invalidRequest(
-          'Refresh recent tasks and choose one from the list.',
+          'Refresh Codex tasks and choose one from the list.',
         )
       s.workers.push(validateTeammate(s, input))
     })

@@ -920,7 +920,7 @@ export default function App() {
                         </EmptyMedia>
                         <EmptyTitle>Your room is ready.</EmptyTitle>
                         <EmptyDescription>
-                          Add a teammate from your recent Codex tasks, then
+                          Add a teammate from your Codex desktop tasks, then
                           mention them here.
                         </EmptyDescription>
                       </EmptyHeader>

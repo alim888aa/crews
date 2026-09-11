@@ -84,6 +84,7 @@ export interface SavedRoom {
   deliveries: Delivery[]
   relay: RelayConfig
   recent: RecentTask[]
+  catalogVersion?: 1
   recentAt: number | null
   refreshRequestedAt: number | null
 }
@@ -126,7 +127,7 @@ export type RoomEvent =
   | { kind: 'started'; workerId: string; deliveryId: string }
   | { kind: 'connect'; workerId: string; token: string }
   | { kind: 'relay'; taskId: string; automationId: string; token: string }
-  | { kind: 'catalog'; tasks: RecentTask[] }
+  | { kind: 'catalog'; tasks: RecentTask[]; catalogVersion?: 1 }
 export interface Approval {
   text: string
   url: string

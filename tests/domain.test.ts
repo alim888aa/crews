@@ -125,7 +125,7 @@ test('connection receipt must match the exact teammate and nonce', () => {
   acceptEvent(s, { kind: 'connect', workerId: w.id, token: w.token })
   assert.equal(w.connection, 'connected')
 })
-test('recent task picker deduplicates, excludes relay and chooses ten newest', () => {
+test('task picker retains older tasks, deduplicates and excludes relay', () => {
   const s = newRoom()
   const tasks = Array.from({ length: 13 }, (_, i) => ({
     id: randomUUID(),
@@ -135,9 +135,9 @@ test('recent task picker deduplicates, excludes relay and chooses ten newest', (
   }))
   s.relay.taskId = tasks[12]!.id
   acceptEvent(s, { kind: 'catalog', tasks: [...tasks, tasks[0]!] })
-  assert.equal(s.recent.length, 10)
+  assert.equal(s.recent.length, 12)
   assert.equal(s.recent[0]!.updatedAt, 11)
-  assert.equal(s.recent.at(-1)!.updatedAt, 2)
+  assert.equal(s.recent.at(-1)!.updatedAt, 0)
 })
 test('setup cannot replace a previously registered relay', () => {
   const s = newRoom()
@@ -204,4 +204,23 @@ test('raising the limit applies to ongoing discussions and new messages get a fr
   assert.equal(s.deliveries.length, 5)
   acceptEvent(s, reply(s, 4, 'next', ['two']))
   assert.equal(s.deliveries.length, 6)
+})
+
+test('complete catalog ignores late legacy relay lists but accepts genuine shrinkage', () => {
+  const state = newRoom()
+  const tasks = Array.from({ length: 25 }, (_, i) => ({
+    id: randomUUID(),
+    title: `Task ${i}`,
+    cwd: '/tmp',
+    updatedAt: i,
+  }))
+  acceptEvent(state, { kind: 'catalog', tasks, catalogVersion: 1 })
+  acceptEvent(state, { kind: 'catalog', tasks: tasks.slice(0, 10) })
+  assert.equal(state.recent.length, 25)
+  acceptEvent(state, {
+    kind: 'catalog',
+    tasks: tasks.slice(0, 3),
+    catalogVersion: 1,
+  })
+  assert.equal(state.recent.length, 3)
 })

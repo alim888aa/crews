@@ -18,7 +18,7 @@ Open the disk image, drag **Crews.app** into **Applications**, then open it. Qui
 
 1. Click **Connect to Codex**. Select **Luna · Medium** in Codex, then review and send the setup message.
 2. Follow any approval requests. This task becomes the relay that carries messages between Crews and your agents.
-3. Back in Crews, click **Add teammate** and choose from your ten most recent Codex tasks.
+3. Back in Crews, click **Add teammate** to browse all non-archived local Codex desktop tasks. Search by task name or project folder. The list loads directly from Codex without waiting for the relay.
 4. Pick a display name and @name, then click **Add and connect**.
 5. Crews copies a connection message and opens the original task. Paste and send it, then wait for Crews to confirm the connection.
 

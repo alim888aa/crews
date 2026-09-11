@@ -188,7 +188,7 @@ export function Teammates({
     !!state.refreshRequestedAt &&
     (!state.recentAt || state.refreshRequestedAt > state.recentAt)
   const tasks = state.recent.filter((t) =>
-    t.title.toLowerCase().includes(filter.toLowerCase()),
+    `${t.title} ${t.cwd}`.toLowerCase().includes(filter.toLowerCase()),
   )
   function choose(task: RecentTask | Worker) {
     setSelected(task)
@@ -280,7 +280,7 @@ export function Teammates({
             <DialogDescription>
               {approval
                 ? 'Approve this connection in the original Codex task. We’ll confirm it here when the task replies.'
-                : 'Choose from your ten most recent local Codex tasks.'}
+                : 'Choose from your local Codex desktop tasks.'}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -464,23 +464,21 @@ export function Teammates({
             )}
             <Field>
               <FieldLabel htmlFor="task-search" className="sr-only">
-                Filter recent tasks
+                Filter Codex tasks
               </FieldLabel>
               <Input
                 id="task-search"
-                placeholder="Find a recent task…"
+                placeholder="Find a task or project…"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
             </Field>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                RECENT TASKS
-              </span>
+              <span className="text-xs text-muted-foreground">CODEX TASKS</span>
               <Button
                 variant="ghost"
                 size="xs"
-                disabled={waiting || !state.relay.taskId}
+                disabled={waiting}
                 onClick={() => {
                   setError('')
                   void window.crew
@@ -530,9 +528,7 @@ export function Teammates({
                     <EmptyDescription>
                       {filter
                         ? 'Try another name.'
-                        : state.relay.taskId
-                          ? 'Keep Codex open. The relay will send the list when it checks in.'
-                          : 'Connect Codex first to load your recent tasks.'}
+                        : 'Refresh to load your Codex desktop tasks.'}
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
@@ -540,8 +536,7 @@ export function Teammates({
             </div>
             {waiting && (
               <p role="status" className="text-xs text-muted-foreground">
-                Refresh is queued for the relay’s next check. You can keep using
-                the room.
+                Loading your Codex tasks…
               </p>
             )}
           </>

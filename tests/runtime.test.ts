@@ -174,13 +174,11 @@ test('dispatcher passes prompts byte-for-byte and never auto-retries an uncertai
   assert.ok(commands.at(-1)!.includes("'uncertain'"))
   assert.equal(sent.length, 1)
 })
-test('native catalog combines pinned tasks and normalizes timestamps', async () => {
-  let catalogCommand = ''
-  const a = randomUUID(),
-    b = randomUUID()
+test('relay catalog refresh uses the complete direct listing helper', async () => {
+  const commands: string[] = []
   const tools = {
     exec_command: async ({ cmd }: { cmd: string }) => {
-      if (cmd.includes("'catalog'")) catalogCommand = cmd
+      commands.push(cmd)
       return {
         exit_code: 0,
         output: JSON.stringify(
@@ -190,48 +188,13 @@ test('native catalog combines pinned tasks and normalizes timestamps', async () 
         ),
       }
     },
-    mcp__codex_app__list_threads: async () => ({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            pinnedThreads: [
-              {
-                id: a,
-                title: 'Pinned',
-                kind: 'codex',
-                hostId: 'local',
-                updatedAt: 100,
-              },
-            ],
-            threads: [
-              {
-                id: b,
-                title: 'Recent',
-                kind: 'codex',
-                hostId: 'local',
-                updatedAt: 2000000000000,
-              },
-              {
-                id: randomUUID(),
-                title: 'Cloud',
-                kind: 'chatgpt',
-                updatedAt: 9999999999999,
-              },
-            ],
-          }),
-        },
-      ],
-    }),
   }
   await vm.runInNewContext(
     'const crewRelayCommand = "cli";\n' +
       fs.readFileSync('build/relay-turn.js', 'utf8'),
     { tools, text: () => {} },
   )
-  assert.ok(catalogCommand.includes('100000'))
-  assert.ok(catalogCommand.includes('2000000000000'))
-  assert.ok(!catalogCommand.includes('Cloud'))
+  assert.ok(commands.some((cmd) => cmd.includes("'refresh-catalog'")))
 })
 test('quoted executable arguments preserve shell syntax literally', async () => {
   const parts = ["a'b", '$(printf WRONG)', '`printf WRONG`', 'a\nb']

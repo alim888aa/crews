@@ -106,6 +106,7 @@ export const StateSchema = Schema.Struct({
     token: ID,
   }),
   recent: Schema.Array(Task),
+  catalogVersion: Schema.optional(Schema.Literal(1)),
   recentAt: Schema.NullOr(Schema.Number),
   refreshRequestedAt: Schema.NullOr(Schema.Number),
 })
@@ -129,7 +130,11 @@ export const EventSchema = Schema.Union(
     automationId: Text,
     token: ID,
   }),
-  Schema.Struct({ kind: Schema.Literal('catalog'), tasks: Schema.Array(Task) }),
+  Schema.Struct({
+    kind: Schema.Literal('catalog'),
+    tasks: Schema.Array(Task),
+    catalogVersion: Schema.optional(Schema.Literal(1)),
+  }),
 )
 export const decodeState = Schema.decodeUnknownSync(StateSchema)
 export const decodeEvent = Schema.decodeUnknownSync(EventSchema)

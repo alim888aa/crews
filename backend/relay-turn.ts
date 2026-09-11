@@ -24,7 +24,6 @@ declare const tools: {
     threadId: string
     prompt: string
   }): Promise<Result>
-  mcp__codex_app__list_threads(args: { limit: number }): Promise<Result>
   mcp__codex_app__wait_threads(args: {
     targets: { threadId: string }[]
     timeoutMs: number
@@ -86,33 +85,7 @@ declare const tools: {
   }
   const batch = await cli(['next', 'compact'])
   if (batch.refreshCatalog) {
-    const listed = unpack(
-      await tools.mcp__codex_app__list_threads({ limit: 40 }),
-    )
-    const all = [
-      ...(Array.isArray(listed.pinnedThreads) ? listed.pinnedThreads : []),
-      ...(Array.isArray(listed.threads) ? listed.threads : []),
-    ].map(record)
-    const tasks = all
-      .filter(
-        (t) =>
-          t.kind === 'codex' &&
-          t.hostId === 'local' &&
-          typeof t.id === 'string' &&
-          typeof t.title === 'string',
-      )
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        cwd: typeof t.cwd === 'string' ? t.cwd : '',
-        updatedAt:
-          typeof t.updatedAt === 'number'
-            ? t.updatedAt < 1e12
-              ? t.updatedAt * 1000
-              : t.updatedAt
-            : 0,
-      }))
-    await cli(['catalog'], { tasks })
+    await cli(['refresh-catalog'])
     text({ catalogUpdated: true })
   }
   const jobs = Array.isArray(batch.jobs) ? batch.jobs.map(record) : []

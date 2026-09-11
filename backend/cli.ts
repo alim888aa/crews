@@ -1,3 +1,4 @@
+import { loadTaskCatalog } from './task-catalog.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +12,12 @@ import {
   uuid,
   alive,
 } from './storage.js'
-import { attempt, invalidRequest, type BackendError } from './errors.js'
+import {
+  attempt,
+  attemptAsync,
+  invalidRequest,
+  type BackendError,
+} from './errors.js'
 import { jsonInput } from './input.js'
 import {
   postEvent,
@@ -80,6 +86,12 @@ function dispatch(config: Config, state: SavedRoom): Command {
       automationId: string(token, 'automation ID'),
       token: uuid(detail),
     })
+  if (command === 'refresh-catalog')
+    return attemptAsync('load Codex tasks', loadTaskCatalog).pipe(
+      Effect.flatMap((tasks) =>
+        postEvent({ kind: 'catalog', tasks, catalogVersion: 1 }),
+      ),
+    )
   if (command === 'catalog')
     return jsonInput(process.stdin).pipe(
       Effect.flatMap((input) =>

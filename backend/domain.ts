@@ -191,10 +191,12 @@ export function sendMessage(
 }
 export function acceptEvent(state: SavedRoom, event: RoomEvent) {
   if (event.kind === 'catalog') {
+    // An in-flight older relay must not replace the complete direct catalog.
+    if (state.catalogVersion === 1 && event.catalogVersion !== 1) return
+    if (event.catalogVersion === 1) state.catalogVersion = 1
     state.recent = [...new Map(event.tasks.map((t) => [t.id, t])).values()]
       .filter((t) => t.id !== state.relay.taskId)
       .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 10)
     state.recentAt = Date.now()
     return
   }

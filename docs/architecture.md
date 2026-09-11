@@ -30,6 +30,10 @@ Channels hold names and teammate IDs. `#general` dynamically includes every team
 
 `electron/` owns native integration, sandboxed preload and image validation. Only the main process opens approved link types after a user click. The renderer has no Node access, and message HTML is not executed.
 
+## Task picker
+
+The Electron main process reads the complete non-archived desktop task catalog through the supported local Codex app-server thread/list API, following pagination and closing the process after refresh. It does not start model turns, read private databases directly, or require the relay. Failed refreshes preserve the previous catalog. The relay setup helper uses the same reader when it needs an initial catalog.
+
 ## Delivery lifecycle
 
 A user message creates a delivery per recipient. Ordered rounds hold later speakers until earlier replies arrive. Simultaneous rounds allow different tasks to start independently.

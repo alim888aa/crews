@@ -1,3 +1,4 @@
+import { loadTaskCatalog } from '../backend/task-catalog.js'
 import { installContextHooks } from '../backend/hooks.js'
 import {
   app,
@@ -172,11 +173,25 @@ else {
       })
       handle('room:add', (value) => room.add(input(value)))
       handle('room:edit', (value) => room.edit(input(value)))
-      handle('room:refresh', () =>
+      // Share concurrent picker refreshes and publish only a complete catalog.
+      let catalogRefresh: Promise<void> | null = null
+      handle('room:refresh', () => {
+        if (catalogRefresh) return catalogRefresh
         room.transaction((s) => {
           s.refreshRequestedAt = Date.now()
-        }),
-      )
+        })
+        catalogRefresh = loadTaskCatalog()
+          .then((tasks) => {
+            room.receive({ kind: 'catalog', tasks, catalogVersion: 1 })
+          })
+          .finally(() => {
+            room.transaction((s) => {
+              s.refreshRequestedAt = null
+            })
+            catalogRefresh = null
+          })
+        return catalogRefresh
+      })
       handle('room:approval', (value) =>
         connectionApproval(
           room.state,
