@@ -546,7 +546,9 @@ function Composer({
                     variant="ghost"
                     size="xs"
                     className={
-                      primaryMentionIds.has(w.id) ? 'font-semibold' : undefined
+                      primaryMentionIds.has(w.id)
+                        ? 'font-bold text-foreground hover:text-foreground'
+                        : 'font-normal text-muted-foreground hover:text-muted-foreground'
                     }
                     onClick={() => mention(w.handle)}
                     aria-label={'Mention ' + w.handle}

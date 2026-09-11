@@ -149,13 +149,20 @@ void (async () => {
       'Mention outsider',
     ])
     assert.deepEqual(root.recipientIds, [member!.id, outsider!.id])
+    const mentionStyles = await js(`['member', 'outsider'].map(handle => {
+      const style = getComputedStyle(document.querySelector('main [aria-label="Mention ' + handle + '"]'));
+      return { weight: Number(style.fontWeight), color: style.color };
+    })`)
+    assert.equal(mentionStyles[0].weight, 700)
+    assert.equal(mentionStyles[1].weight, 400)
+    assert.notEqual(mentionStyles[0].color, mentionStyles[1].color)
     await type(input, '@member target draft')
     await click('Reply to You')
     const replyInput = `document.querySelector('[aria-label="Conversation replies"] textarea')`
     await until(replyInput)
     await type(replyInput, 'conversation draft')
     const conversationChoices = await js(
-      `Array.from(document.querySelectorAll('[aria-label="Conversation replies"] [aria-label="Mention teammates"] button')).filter(b=>b.getAttribute('aria-label')?.startsWith('Mention ')).map(b=>({label:b.getAttribute('aria-label'),primary:b.classList.contains('font-semibold')}))`,
+      `Array.from(document.querySelectorAll('[aria-label="Conversation replies"] [aria-label="Mention teammates"] button')).filter(b=>b.getAttribute('aria-label')?.startsWith('Mention ')).map(b=>({label:b.getAttribute('aria-label'),primary:Number(getComputedStyle(b).fontWeight) === 700}))`,
     )
     assert.equal(
       conversationChoices.find(
