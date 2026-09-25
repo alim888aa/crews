@@ -19,10 +19,38 @@ function fakeClient(options: { complete?: boolean; listed?: boolean } = {}) {
     },
     async request(method, params) {
       calls.push(method)
-      if (method === 'thread/start') return { thread: { id: 'new-task' } }
+      if (method === 'model/list')
+        return {
+          data: [
+            {
+              model: 'gpt-6-sol',
+              displayName: 'GPT-6-Sol',
+              description: 'Test model',
+              hidden: false,
+              supportedReasoningEfforts: [
+                { reasoningEffort: 'medium' },
+                { reasoningEffort: 'high' },
+              ],
+              defaultReasoningEffort: 'medium',
+              isDefault: true,
+            },
+          ],
+          nextCursor: null,
+        }
+      if (method === 'thread/start') {
+        assert.equal((params as { model: string }).model, 'gpt-6-sol')
+        return { thread: { id: 'new-task' } }
+      }
       if (method === 'thread/name/set') return {}
       if (method === 'turn/start') {
-        const input = (params as { input: { text: string }[] }).input
+        const request = params as {
+          input: { text: string }[]
+          model: string
+          effort: string
+        }
+        assert.equal(request.model, 'gpt-6-sol')
+        assert.equal(request.effort, 'high')
+        const input = request.input
         assert.match(
           input[0]!.text,
           /Do not use tools, read files, or make changes/,
@@ -40,6 +68,10 @@ function fakeClient(options: { complete?: boolean; listed?: boolean } = {}) {
           })
         return { turn: { id: 'first-turn' } }
       }
+      if (method === 'thread/read')
+        return {
+          thread: { model: 'gpt-6-sol', reasoningEffort: 'high' },
+        }
       if (method === 'thread/list')
         return {
           data:
@@ -72,13 +104,17 @@ test('creation waits for the first turn and confirms the same desktop task ID', 
     client,
     'New teammate',
     '/project',
+    'gpt-6-sol',
+    'high',
     50,
   )
   assert.equal(result.task.id, 'new-task')
   assert.deepEqual(calls, [
+    'model/list',
     'thread/start',
     'turn/start',
     'thread/name/set',
+    'thread/read',
     'thread/list',
   ])
   assert.equal(listeners.size, 0)
@@ -87,7 +123,14 @@ test('creation waits for the first turn and confirms the same desktop task ID', 
 test('uncertain first turn exposes the created ID without starting another turn', async () => {
   const { client, calls, listeners } = fakeClient({ complete: false })
   await assert.rejects(
-    createTaskWithClient(client, 'New teammate', '/project', 2),
+    createTaskWithClient(
+      client,
+      'New teammate',
+      '/project',
+      'gpt-6-sol',
+      'high',
+      2,
+    ),
     (error: unknown) =>
       error instanceof CreatedTaskError &&
       error.taskId === 'new-task' &&
@@ -102,7 +145,14 @@ test('uncertain first turn exposes the created ID without starting another turn'
 test('completed but unlisted task stays recoverable by its exact ID', async () => {
   const { client } = fakeClient({ listed: false })
   await assert.rejects(
-    createTaskWithClient(client, 'New teammate', '/project', 50),
+    createTaskWithClient(
+      client,
+      'New teammate',
+      '/project',
+      'gpt-6-sol',
+      'high',
+      50,
+    ),
     (error: unknown) =>
       error instanceof CreatedTaskError && error.taskId === 'new-task',
   )
@@ -110,13 +160,40 @@ test('completed but unlisted task stays recoverable by its exact ID', async () =
 
 test('lost thread-start response warns that the task may already exist', async () => {
   const { client, calls } = fakeClient()
-  client.request = async (method) => {
-    calls.push(method)
-    throw new Error('Transport timed out')
+  const original = client.request
+  client.request = async (method, params) => {
+    if (method === 'thread/start') {
+      calls.push(method)
+      throw new Error('Transport timed out')
+    }
+    return original(method, params)
   }
   await assert.rejects(
-    createTaskWithClient(client, 'New teammate', '/project', 50),
+    createTaskWithClient(
+      client,
+      'New teammate',
+      '/project',
+      'gpt-6-sol',
+      'high',
+      50,
+    ),
     /Codex may have started “New teammate”.*check for it before creating another/,
   )
-  assert.deepEqual(calls, ['thread/start'])
+  assert.deepEqual(calls, ['model/list', 'thread/start'])
+})
+
+test('unsupported model effort is rejected before starting a task', async () => {
+  const { client, calls } = fakeClient()
+  await assert.rejects(
+    createTaskWithClient(
+      client,
+      'New teammate',
+      '/project',
+      'gpt-6-sol',
+      'ultra',
+      50,
+    ),
+    /effort supported by that model/,
+  )
+  assert.deepEqual(calls, ['model/list'])
 })

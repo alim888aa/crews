@@ -192,7 +192,7 @@ export async function withAppServer<T>(
   const client = clientFor(child)
   try {
     await client.request('initialize', {
-      clientInfo: { name: 'crews', title: 'Crews', version: '0.3.5' },
+      clientInfo: { name: 'crews', title: 'Crews', version: '0.3.6' },
     })
     child.stdin.write(
       JSON.stringify({ method: 'initialized', params: {} }) + '\n',

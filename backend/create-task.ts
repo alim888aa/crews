@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { RecentTask } from '../shared/contracts.js'
 import { withAppServer, type AppServerClient } from './app-server.js'
+import { fetchModelCatalog, validateModelChoice } from './model-catalog.js'
 import { fetchTaskCatalog } from './task-catalog.js'
 
 const TURN_TIMEOUT_MS = 90_000
@@ -98,12 +99,15 @@ export async function createTaskWithClient(
   client: AppServerClient,
   title: string,
   cwd: string,
+  model: string,
+  effort: string,
   timeoutMs = TURN_TIMEOUT_MS,
 ): Promise<{ task: RecentTask; catalog: RecentTask[] }> {
+  validateModelChoice(await fetchModelCatalog(client.request), model, effort)
   let id: string
   try {
     const started = record(
-      await client.request('thread/start', { cwd, ephemeral: false }),
+      await client.request('thread/start', { cwd, model, ephemeral: false }),
       'thread start',
     )
     const thread = record(started.thread, 'new thread')
@@ -125,6 +129,8 @@ export async function createTaskWithClient(
       () =>
         client.request('turn/start', {
           threadId: id,
+          model,
+          effort,
           input: [
             {
               type: 'text',
@@ -136,6 +142,15 @@ export async function createTaskWithClient(
       timeoutMs,
     )
     await client.request('thread/name/set', { threadId: id, name: title })
+    const saved = record(
+      record(
+        await client.request('thread/read', { threadId: id }),
+        'thread read',
+      ).thread,
+      'saved thread',
+    )
+    if (saved.model !== model || saved.reasoningEffort !== effort)
+      throw new Error('Codex did not retain the selected model and effort.')
     const catalog = await fetchTaskCatalog(client.request)
     const task = catalog.find((item) => item.id === id)
     if (!task)
@@ -149,10 +164,14 @@ export async function createTaskWithClient(
 export async function createCodexTask(input: {
   title: string
   cwd: string
+  model: string
+  effort: string
 }): Promise<{ task: RecentTask; catalog: RecentTask[] }> {
   const title = input.title.trim()
   if (!title || title.length > 100)
     throw new Error('Use a task name up to 100 characters.')
   const cwd = taskFolder(input.cwd)
-  return withAppServer((client) => createTaskWithClient(client, title, cwd))
+  return withAppServer((client) =>
+    createTaskWithClient(client, title, cwd, input.model, input.effort),
+  )
 }

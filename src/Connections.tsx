@@ -35,6 +35,7 @@ import {
   EmptyDescription,
 } from '@/components/ui/empty'
 import type { RoomState, Worker, RecentTask, Approval } from '@/store'
+import type { CodexModelOption } from '../shared/contracts'
 import { CreateTeammate } from '@/CreateTeammate'
 export const errorText = (e: unknown) =>
   e instanceof Error
@@ -85,6 +86,8 @@ export function Teammates({
     [copied, setCopied] = useState(false)
   const [filter, setFilter] = useState('')
   const [creating, setCreating] = useState(false)
+  const [modelOptions, setModelOptions] = useState<CodexModelOption[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
   const [createdWorker, setCreatedWorker] = useState<Worker | null>(null)
   const [hooksInstalled, setHooksInstalled] = useState(false)
   const [installingHooks, setInstallingHooks] = useState(false)
@@ -165,6 +168,18 @@ export function Teammates({
       setBusy(false)
     }
   }
+  async function beginCreate() {
+    setModelsLoading(true)
+    setError('')
+    try {
+      setModelOptions(await window.crew.listModels())
+      setCreating(true)
+    } catch (cause) {
+      setError(errorText(cause))
+    } finally {
+      setModelsLoading(false)
+    }
+  }
   return (
     <Dialog
       open={open}
@@ -197,6 +212,7 @@ export function Teammates({
         </DialogHeader>
         {creating ? (
           <CreateTeammate
+            models={modelOptions}
             onCancel={() => setCreating(false)}
             onCreated={({ task, worker }) => {
               setCreating(false)
@@ -372,13 +388,11 @@ export function Teammates({
           <>
             <Button
               variant="outline"
-              onClick={() => {
-                setError('')
-                setCreating(true)
-              }}
+              disabled={modelsLoading}
+              onClick={() => void beginCreate()}
             >
               <Plus data-icon="inline-start" />
-              Create teammate
+              {modelsLoading ? 'Loading models…' : 'Create teammate'}
             </Button>
             {state.workers.length > 0 && (
               <div className="flex flex-col gap-1">

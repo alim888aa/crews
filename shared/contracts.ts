@@ -35,6 +35,14 @@ export interface CreatedTeammate {
   task: RecentTask
   worker: Worker
 }
+export interface CodexModelOption {
+  model: string
+  displayName: string
+  description: string
+  efforts: string[]
+  defaultEffort: string
+  isDefault: boolean
+}
 export const MAX_IMAGES = 4
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 export interface ImageAttachment {
@@ -163,8 +171,13 @@ export interface CrewAPI {
   add(payload: TeammateInput): Promise<void>
   edit(payload: TeammateInput): Promise<void>
   pickTaskFolder(): Promise<string | null>
+  listModels(): Promise<CodexModelOption[]>
   createTask(
-    payload: Omit<TeammateInput, 'id'> & { cwd: string },
+    payload: Omit<TeammateInput, 'id'> & {
+      cwd: string
+      model: string
+      effort: string
+    },
   ): Promise<CreatedTeammate>
   approval(id: string): Promise<Approval>
   copyOpen(approval: { id: string }): Promise<void>

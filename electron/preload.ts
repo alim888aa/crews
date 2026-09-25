@@ -18,6 +18,7 @@ const api: CrewAPI = {
   add: (value) => ipcRenderer.invoke('room:add', value),
   edit: (value) => ipcRenderer.invoke('room:edit', value),
   pickTaskFolder: () => ipcRenderer.invoke('room:pick-folder'),
+  listModels: () => ipcRenderer.invoke('room:models'),
   createTask: (value) => ipcRenderer.invoke('room:create-task', value),
   approval: (id) => ipcRenderer.invoke('room:approval', id),
   copyOpen: (value) => ipcRenderer.invoke('room:copy-open', value),

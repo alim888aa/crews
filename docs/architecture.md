@@ -34,7 +34,7 @@ Channels hold names and teammate IDs. `#general` dynamically includes every team
 
 The Electron main process reads the complete non-archived desktop task catalog through the supported local Codex app-server thread/list API, following pagination and closing the process after refresh. It does not start model turns, read private databases directly, or require the relay. Failed refreshes preserve the previous catalog. The relay setup helper uses the same reader when it needs an initial catalog.
 
-Create teammate uses that same app-server transport to start a task in the folder the user selected. It waits for one short no-tools turn to complete, names the task, and confirms its exact ID in the full desktop catalog before adding it to the room. A new teammate joins `#general` through the existing dynamic membership rule. The app then opens the exact Codex task with the connection message copied; the user sends that message there. An uncertain start or incomplete first turn never triggers an automatic second creation attempt.
+Create teammate reads the signed-in account's visible models and supported reasoning efforts from app-server. It validates the user's choice again before starting a task in the selected folder, then applies the model and effort to the first turn. It waits for one short no-tools turn to complete, checks the task settings, names the task, and confirms its exact ID in the full desktop catalog before adding it to the room. A new teammate joins `#general` through the existing dynamic membership rule. The app then opens the exact Codex task with the connection message copied; the user sends that message there. An uncertain start or incomplete first turn never triggers an automatic second creation attempt.
 
 ## Delivery lifecycle
 

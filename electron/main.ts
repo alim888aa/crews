@@ -1,5 +1,6 @@
 import { loadTaskCatalog } from '../backend/task-catalog.js'
 import { createCodexTask, CreatedTaskError } from '../backend/create-task.js'
+import { loadModelCatalog } from '../backend/model-catalog.js'
 import { installContextHooks } from '../backend/hooks.js'
 import {
   app,
@@ -176,6 +177,7 @@ else {
       })
       handle('room:add', (value) => room.add(input(value)))
       handle('room:edit', (value) => room.edit(input(value)))
+      handle('room:models', () => loadModelCatalog())
       handle('room:pick-folder', async () => {
         const result = await dialog.showOpenDialog(window!, {
           title: 'Choose a folder for the new Codex task',
@@ -196,6 +198,8 @@ else {
           const created = await createCodexTask({
             title: draft.title,
             cwd: string(v.cwd, 'folder'),
+            model: string(v.model, 'model'),
+            effort: string(v.effort, 'effort'),
           })
           try {
             room.receive({

@@ -9,9 +9,27 @@ import {
   FieldLabel,
   FieldError,
 } from '@/components/ui/field'
-import { MAX_IDENTITY_LENGTH, type CreatedTeammate } from '../shared/contracts'
+import {
+  MAX_IDENTITY_LENGTH,
+  type CodexModelOption,
+  type CreatedTeammate,
+} from '../shared/contracts'
 
-type Draft = { title: string; handle: string; identity: string; cwd: string }
+type Draft = {
+  title: string
+  handle: string
+  identity: string
+  cwd: string
+  model: string
+  effort: string
+}
+
+function effortLabel(effort: string): string {
+  return (
+    { xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' }[effort] ??
+    effort[0]!.toUpperCase() + effort.slice(1)
+  )
+}
 
 function handleFrom(name: string): string {
   return (
@@ -25,20 +43,26 @@ function handleFrom(name: string): string {
 }
 
 export function CreateTeammate({
+  models,
   onCancel,
   onCreated,
 }: {
+  models: CodexModelOption[]
   onCancel: () => void
   onCreated: (created: CreatedTeammate) => void
 }) {
+  const initial = models.find((item) => item.isDefault) ?? models[0]!
   const [title, setTitle] = useState('')
   const [handle, setHandle] = useState('')
   const [handleEdited, setHandleEdited] = useState(false)
   const [identity, setIdentity] = useState('')
   const [cwd, setCwd] = useState('')
+  const [model, setModel] = useState(initial.model)
+  const [effort, setEffort] = useState(initial.defaultEffort)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [uncertain, setUncertain] = useState(false)
+  const selectedModel = models.find((item) => item.model === model) ?? initial
 
   async function chooseFolder() {
     setError('')
@@ -53,7 +77,7 @@ export function CreateTeammate({
   async function create() {
     setBusy(true)
     setError('')
-    const draft = { title, handle, identity, cwd }
+    const draft: Draft = { title, handle, identity, cwd, model, effort }
     try {
       const created = await window.crew.createTask(draft)
       onCreated(created)
@@ -137,6 +161,50 @@ export function CreateTeammate({
           </p>
         </Field>
         <Field>
+          <FieldLabel htmlFor="new-teammate-model">Model</FieldLabel>
+          <select
+            id="new-teammate-model"
+            value={model}
+            onChange={(event) => {
+              const next = models.find(
+                (item) => item.model === event.target.value,
+              )
+              if (!next) return
+              setModel(next.model)
+              setEffort(next.defaultEffort)
+            }}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          >
+            {models.map((option) => (
+              <option key={option.model} value={option.model}>
+                {option.displayName}
+              </option>
+            ))}
+          </select>
+          {selectedModel.description && (
+            <p className="text-xs text-muted-foreground">
+              {selectedModel.description}
+            </p>
+          )}
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-teammate-effort">
+            Reasoning effort
+          </FieldLabel>
+          <select
+            id="new-teammate-effort"
+            value={effort}
+            onChange={(event) => setEffort(event.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          >
+            {selectedModel.efforts.map((option) => (
+              <option key={option} value={option}>
+                {effortLabel(option)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field>
           <FieldLabel htmlFor="new-teammate-identity">Identity</FieldLabel>
           <Textarea
             id="new-teammate-identity"
@@ -150,7 +218,7 @@ export function CreateTeammate({
       </FieldGroup>
       <p className="mt-4 text-xs text-muted-foreground">
         Crews will send one short first message so this task appears in Codex.
-        It uses your Codex default model.
+        The model and effort you chose will stay with that task.
       </p>
       {error && <FieldError className="mt-3">{error}</FieldError>}
       <div className="mt-5 flex justify-between gap-2">
