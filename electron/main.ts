@@ -20,6 +20,7 @@ import { validateImageIds } from '../backend/attachments.js'
 import { registerImageHandlers } from './images.js'
 import { Room } from '../backend/room.js'
 import { validateTeammate } from '../backend/domain.js'
+import { parseTeammateInput } from './teammate-input.js'
 import { randomUUID } from 'node:crypto'
 import { atomicWrite, object, string, uuid } from '../backend/storage.js'
 import {
@@ -113,23 +114,6 @@ else {
         if (!w) throw new Error('Unknown teammate.')
         return w
       }
-      const input = (value: unknown) => {
-        const v = object(value)
-        return {
-          id: uuid(v.id),
-          title: string(v.title, 'name').trim(),
-          handle: string(v.handle, '@name').trim().toLowerCase(),
-          ...(v.identity === undefined
-            ? {}
-            : {
-                identity:
-                  typeof v.identity === 'string'
-                    ? v.identity
-                    : string(v.identity, 'identity'),
-              }),
-          ...(v.role === undefined ? {} : { role: string(v.role, 'role') }),
-        }
-      }
       handle('room:context-hooks', () => {
         installContextHooks(codexHooksFile(), runtime, executable)
       })
@@ -176,8 +160,8 @@ else {
           s.paused = value
         })
       })
-      handle('room:add', (value) => room.add(input(value)))
-      handle('room:edit', (value) => room.edit(input(value)))
+      handle('room:add', (value) => room.add(parseTeammateInput(value)))
+      handle('room:edit', (value) => room.edit(parseTeammateInput(value)))
       handle('room:models', () => loadModelCatalog())
       handle('room:pick-folder', async () => {
         const result = await dialog.showOpenDialog(window!, {
@@ -194,7 +178,7 @@ else {
         creatingTask = true
         try {
           const v = object(value)
-          const draft = input({ ...v, id: randomUUID() })
+          const draft = parseTeammateInput({ ...v, id: randomUUID() })
           validateTeammate(room.state, draft)
           const created = await createCodexTask({
             title: draft.title,
