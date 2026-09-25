@@ -508,7 +508,7 @@ test('take refreshes identity without a prompt hook, then deduplicates and clear
     identity: 'Desk label AMBER',
   })
   assert.match((await take()).identityUpdate, /Desk label AMBER/)
-  // A normal prompt hook shares the checkpoint instead of injecting the same brief again.
+  // The normal prompt hook adds the roster without repeating the unchanged identity.
   const hook = spawn(
     process.execPath,
     [path.join(runtime, 'context-hook.mjs')],
@@ -525,7 +525,8 @@ test('take refreshes identity without a prompt hook, then deduplicates and clear
     JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: worker }),
   )
   assert.equal(await ended, 0)
-  assert.equal(output, '')
+  assert.match(output, /Current Crews project rosters/)
+  assert.doesNotMatch(output, /Desk label AMBER/)
   room.edit({ id: worker, title: 'Intern', handle: 'intern', identity: '' })
   assert.match(
     (await take()).identityUpdate,

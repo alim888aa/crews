@@ -14,6 +14,7 @@ import {
   DEFAULT_REPLY_LIMIT,
   GENERAL_CHANNEL_ID,
   MAX_IDENTITY_LENGTH,
+  MAX_ROLE_LENGTH,
 } from '../shared/contracts.js'
 import {
   channelMemberIds,
@@ -92,9 +93,19 @@ export function validateTeammate(
     throw invalidRequest(
       `Keep the identity under ${MAX_IDENTITY_LENGTH} characters.`,
     )
+  const role = input.role ?? old?.role ?? ''
+  if (
+    typeof role !== 'string' ||
+    role.length > MAX_ROLE_LENGTH ||
+    /[\r\n]/.test(role)
+  )
+    throw invalidRequest(
+      `Keep the role on one line under ${MAX_ROLE_LENGTH} characters.`,
+    )
   return {
     ...input,
     identity: identity.trim(),
+    role: role.trim(),
     initials: input.title
       .split(/\s+/)
       .slice(0, 2)
@@ -239,15 +250,21 @@ export function acceptEvent(state: SavedRoom, event: RoomEvent) {
   const peers = [...new Set(event.to)].map((h) =>
     state.workers.find((w) => w.handle === h),
   )
+  const participants = conversationParticipantIds(state, root.id)
+  const projectMembers = channelMemberIds(state, root.channelId)
+  const workerIsMember = projectMembers.includes(worker.id)
   if (
     peers.some(
       (w) =>
         !w ||
         w.id === worker.id ||
-        !conversationParticipantIds(state, root.id).includes(w.id),
+        (!participants.includes(w.id) &&
+          !(workerIsMember && projectMembers.includes(w.id))),
     )
   )
-    throw invalidRequest('Only address other teammates in this conversation.')
+    throw invalidRequest(
+      'Only address conversation participants or members of your current project.',
+    )
   if (event.kind === 'progress' && peers.length)
     throw invalidRequest('Progress cannot start peer deliveries.')
   const message: ChatMessage = {

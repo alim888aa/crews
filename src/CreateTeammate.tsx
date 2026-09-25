@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/field'
 import {
   MAX_IDENTITY_LENGTH,
+  MAX_ROLE_LENGTH,
   type CodexModelOption,
   type CreatedTeammate,
 } from '../shared/contracts'
@@ -19,6 +20,7 @@ type Draft = {
   title: string
   handle: string
   identity: string
+  role: string
   cwd: string
   model: string
   effort: string
@@ -56,6 +58,7 @@ export function CreateTeammate({
   const [handle, setHandle] = useState('')
   const [handleEdited, setHandleEdited] = useState(false)
   const [identity, setIdentity] = useState('')
+  const [role, setRole] = useState('')
   const [cwd, setCwd] = useState('')
   const [model, setModel] = useState(initial.model)
   const [effort, setEffort] = useState(initial.defaultEffort)
@@ -77,7 +80,7 @@ export function CreateTeammate({
   async function create() {
     setBusy(true)
     setError('')
-    const draft: Draft = { title, handle, identity, cwd, model, effort }
+    const draft: Draft = { title, handle, identity, role, cwd, model, effort }
     try {
       const created = await window.crew.createTask(draft)
       onCreated(created)
@@ -203,6 +206,16 @@ export function CreateTeammate({
               </option>
             ))}
           </select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-teammate-role">Project role</FieldLabel>
+          <Input
+            id="new-teammate-role"
+            value={role}
+            maxLength={MAX_ROLE_LENGTH}
+            placeholder="One line teammates can see, such as QA lead"
+            onChange={(event) => setRole(event.target.value)}
+          />
         </Field>
         <Field>
           <FieldLabel htmlFor="new-teammate-identity">Identity</FieldLabel>

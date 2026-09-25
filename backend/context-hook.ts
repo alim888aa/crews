@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { Effect, Cause } from 'effect'
 import { compactionRecovery } from './compaction.js'
 import { loadIdentity } from './identity.js'
+import { loadRoster } from './roster.js'
 import { runtimeConfig } from './paths.js'
 import { readState, receipt } from './room.js'
 import { atomicWrite, object, uuid } from './storage.js'
@@ -35,6 +36,9 @@ const program = Effect.gen(function* () {
   const identity = yield* attempt('load teammate identity', () =>
     loadIdentity(state, config.directory, taskId, sessionStart),
   ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+  const roster = yield* attempt('load project roster', () =>
+    loadRoster(state, config.directory, taskId, sessionStart),
+  ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
   const recovery =
     sessionStart && event.source === 'compact'
       ? yield* attempt('load compaction recovery', () =>
@@ -49,7 +53,7 @@ const program = Effect.gen(function* () {
           ),
         ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
       : undefined
-  const context = [identity?.context, recovery?.context]
+  const context = [identity?.context, roster?.context, recovery?.context]
     .filter(Boolean)
     .join('\n\n')
   if (!context) return
@@ -66,6 +70,10 @@ const program = Effect.gen(function* () {
   // Checkpoints describe emitted output, never claim a model followed it.
   if (identity)
     yield* attempt('record identity context', identity.recordEmitted).pipe(
+      Effect.catchAll(() => Effect.void),
+    )
+  if (roster)
+    yield* attempt('record roster context', roster.recordEmitted).pipe(
       Effect.catchAll(() => Effect.void),
     )
   if (recovery)

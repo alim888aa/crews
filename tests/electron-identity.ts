@@ -65,6 +65,8 @@ void (async () => {
   try {
     await win.loadFile(path.resolve('dist/index.html'))
     await openEditor()
+    await js("document.getElementById('teammate-role').focus()")
+    await win.webContents.insertText('Reproduces bugs and checks fixes')
     await js("document.getElementById('teammate-identity').focus()")
     await win.webContents.insertText(
       'You are our intern. Reproduce bugs before suggesting fixes.',
@@ -78,6 +80,10 @@ void (async () => {
     await click('Save changes')
     await until("!document.getElementById('teammate-identity')")
     assert.match(room.state.workers[0]!.identity!, /Reproduce bugs/)
+    assert.equal(
+      room.state.workers[0]!.role,
+      'Reproduces bugs and checks fixes',
+    )
     room = new Room(directory)
     await win.loadFile(path.resolve('dist/index.html'))
     await openEditor()
@@ -85,9 +91,17 @@ void (async () => {
       await js("document.getElementById('teammate-identity').value"),
       /Reproduce bugs/,
     )
+    assert.equal(
+      await js("document.getElementById('teammate-role').value"),
+      'Reproduces bugs and checks fixes',
+    )
     win.show()
-    await js("Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))")
-    await js("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+    await js(
+      'Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))',
+    )
+    await js(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    )
     fs.writeFileSync(
       '/tmp/crews-identity-ui.png',
       (await win.webContents.capturePage()).toPNG(),
@@ -101,6 +115,10 @@ void (async () => {
     await click('Save changes')
     await until("!document.getElementById('teammate-identity')")
     assert.equal(new Room(directory).state.workers[0]!.identity, '')
+    assert.equal(
+      new Room(directory).state.workers[0]!.role,
+      'Reproduces bugs and checks fixes',
+    )
     console.log(
       'PASS: identity editor, persistence, clearing and hook install without granting trust',
     )

@@ -1,4 +1,4 @@
-import { MAX_IDENTITY_LENGTH } from '../shared/contracts'
+import { MAX_IDENTITY_LENGTH, MAX_ROLE_LENGTH } from '../shared/contracts'
 import { Textarea } from '@/components/ui/textarea'
 import { useState } from 'react'
 import {
@@ -37,31 +37,14 @@ import {
 import type { RoomState, Worker, RecentTask, Approval } from '@/store'
 import type { CodexModelOption } from '../shared/contracts'
 import { CreateTeammate } from '@/CreateTeammate'
+import { ConnectionLabel } from '@/ConnectionLabel'
+export { ConnectionLabel } from '@/ConnectionLabel'
 export const errorText = (e: unknown) =>
   e instanceof Error
     ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
     : String(e)
 export { Setup } from './Setup'
 
-export function ConnectionLabel({ worker }: { worker: Worker }) {
-  if (worker.connection === 'new') return <>Not connected</>
-  if (worker.connection === 'awaiting') return <>Waiting for your approval</>
-  if (worker.connection === 'approval') return <>Approval needed</>
-  return (
-    <>
-      {
-        {
-          idle: 'Ready',
-          working: 'Working…',
-          queued: 'Queued',
-          turn: 'Waiting for turn',
-          unconfirmed: 'Waiting for task',
-          attention: 'Needs attention',
-        }[worker.presence]
-      }
-    </>
-  )
-}
 export function Teammates({
   state,
   open,
@@ -79,6 +62,7 @@ export function Teammates({
   )
   const [title, setTitle] = useState(initial?.title ?? ''),
     [handle, setHandle] = useState(initial?.handle ?? ''),
+    [role, setRole] = useState(initial?.role ?? ''),
     [identity, setIdentity] = useState(initial?.identity ?? '')
   const [approval, setApproval] = useState<Approval | null>(null),
     [error, setError] = useState(''),
@@ -103,6 +87,7 @@ export function Teammates({
   function choose(task: RecentTask | Worker) {
     setSelected(task)
     setTitle(task.title)
+    setRole('role' in task ? (task.role ?? '') : '')
     setIdentity('identity' in task ? (task.identity ?? '') : '')
     setHandle(
       'handle' in task
@@ -123,7 +108,7 @@ export function Teammates({
     setBusy(true)
     setError('')
     try {
-      const input = { id: selected.id, title, handle, identity }
+      const input = { id: selected.id, title, handle, role, identity }
       if (existing) await window.crew.edit(input)
       else await window.crew.add(input)
       if (existing?.connection === 'connected') {
@@ -220,6 +205,7 @@ export function Teammates({
               setCreatedWorker(worker)
               setTitle(worker.title)
               setHandle(worker.handle)
+              setRole(worker.role ?? '')
               setIdentity(worker.identity ?? '')
               setError('')
               setCopied(false)
@@ -312,6 +298,19 @@ export function Teammates({
                   required
                   aria-invalid={!!error}
                 />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="teammate-role">Project role</FieldLabel>
+                <Input
+                  id="teammate-role"
+                  value={role}
+                  maxLength={MAX_ROLE_LENGTH}
+                  placeholder="One line teammates can see, such as QA lead"
+                  onChange={(event) => setRole(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shared with members of this teammate’s project channels.
+                </p>
               </Field>
               <Field>
                 <FieldLabel htmlFor="teammate-identity">Identity</FieldLabel>

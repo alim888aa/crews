@@ -1,5 +1,6 @@
 export const DEFAULT_REPLY_LIMIT = 32
 export const MAX_IDENTITY_LENGTH = 8000
+export const MAX_ROLE_LENGTH = 160
 export const GENERAL_CHANNEL_ID = 'general'
 export interface Channel {
   id: string
@@ -14,9 +15,11 @@ export interface TeammateInput {
   title: string
   handle: string
   identity?: string
+  role?: string
 }
 export interface Teammate {
   identity?: string
+  role?: string
   id: string
   handle: string
   title: string

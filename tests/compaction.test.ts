@@ -149,11 +149,11 @@ test('completed, disconnected, paused and ambiguous deliveries do not get restor
   }
 })
 
-test('real hook is silent for other tasks, non-compaction events and approval blocks', async (t) => {
+test('real hook restores only the current task roster and stays silent elsewhere', async (t) => {
   const f = fixture(t)
   f.start()
   const stranger = randomUUID()
-  for (const event of [
+  for (const [index, event] of [
     {
       hook_event_name: 'SessionStart',
       source: 'startup',
@@ -171,14 +171,19 @@ test('real hook is silent for other tasks, non-compaction events and approval bl
       session_id: f.worker,
       agent_id: stranger,
     },
-  ]) {
+  ].entries()) {
     const result = await f.hook(event, String(event.session_id))
-    assert.equal(result.stdout, '')
+    if (index === 0) {
+      assert.match(result.stdout, /Current Crews project rosters/)
+      assert.doesNotMatch(result.stdout, /deliveryId/)
+    } else assert.equal(result.stdout, '')
     assert.equal(result.code, 0)
   }
   for (const failure of ['approval', 'uncertain', 'storage', 'task'] as const) {
     mark(f.directory, f.job.deliveryId, 'attention', 'Held', failure)
-    assert.equal((await f.hook()).stdout, '')
+    const context = (await f.hook()).stdout
+    assert.match(context, /Current Crews project rosters/)
+    assert.doesNotMatch(context, /deliveryId/)
   }
 })
 
@@ -207,7 +212,9 @@ test('missing claim and malformed hook input cannot restart or block a task', as
   const f = fixture(t)
   f.start()
   fs.unlinkSync(path.join(f.directory, 'claims', f.job.deliveryId))
-  assert.equal((await f.hook()).stdout, '')
+  const context = (await f.hook()).stdout
+  assert.match(context, /Current Crews project rosters/)
+  assert.doesNotMatch(context, /deliveryId/)
   const malformed = await f.hook({
     hook_event_name: 'SessionStart',
     source: 'compact',

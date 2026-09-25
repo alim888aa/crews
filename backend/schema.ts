@@ -3,6 +3,7 @@ import {
   DEFAULT_REPLY_LIMIT,
   GENERAL_CHANNEL_ID,
   MAX_IDENTITY_LENGTH,
+  MAX_ROLE_LENGTH,
 } from '../shared/contracts.js'
 export const ReplyLimitSchema = Schema.Number.pipe(
   Schema.int(),
@@ -71,6 +72,7 @@ const Worker = Schema.Struct({
   identity: Schema.optional(
     Schema.String.pipe(Schema.maxLength(MAX_IDENTITY_LENGTH)),
   ),
+  role: Schema.optional(Schema.String.pipe(Schema.maxLength(MAX_ROLE_LENGTH))),
   id: ID,
   handle: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9-]{0,31}$/)),
   title: Text,

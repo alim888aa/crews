@@ -127,6 +127,7 @@ else {
                     ? v.identity
                     : string(v.identity, 'identity'),
               }),
+          ...(v.role === undefined ? {} : { role: string(v.role, 'role') }),
         }
       }
       handle('room:context-hooks', () => {
