@@ -178,6 +178,27 @@ test('ordinary takes refresh the project roster and same-project contact keeps c
   )
 })
 
+test('reapproval withdraws a previously emitted roster until reconnection', async (t) => {
+  const { dir, runtime, room } = fixture(t)
+  const qa = add(room, 'qa', 'Release reviewer')
+  const alpha = room.createChannel({ name: 'alpha', memberIds: [qa] })
+  const first = loadRoster(room.state, dir, qa, false)!
+  assert.match(first.context, /"name":"alpha"/)
+  first.recordEmitted()
+
+  const approval = room.beginApproval(qa)
+  room.setChannelMembers({ id: alpha.id, memberIds: [] })
+  const revoked = await hook(runtime, qa)
+  assert.match(revoked, /rosters.*withdrawn/)
+  assert.doesNotMatch(revoked, /Release reviewer|"name":"alpha"/)
+  assert.equal(loadRoster(room.state, dir, qa, false), undefined)
+
+  room.receive({ kind: 'connect', workerId: qa, token: approval.token })
+  const restored = await hook(runtime, qa)
+  assert.match(restored, /Current Crews project rosters/)
+  assert.doesNotMatch(restored, /"name":"alpha"/)
+})
+
 test('a conversation guest cannot recruit another project member', (t) => {
   const { dir, room } = fixture(t)
   const lead = add(room, 'lead', 'Engineering lead')

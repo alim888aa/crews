@@ -379,7 +379,9 @@ test('identity is task scoped and independent of pending work, with fail-open in
   f.room.transaction((s) => {
     s.workers[0]!.connection = 'awaiting'
   })
-  assert.equal((await f.hook()).stdout, '')
+  const withdrawn = (await f.hook()).stdout
+  assert.match(withdrawn, /rosters.*withdrawn/)
+  assert.doesNotMatch(withdrawn, /IDENTITY-CEDAR/)
 })
 
 test('identity edits persist and remain unchanged by peer replies or metadata-only edits', (t) => {
