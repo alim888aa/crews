@@ -31,6 +31,10 @@ export interface RecentTask {
   updatedAt: number
   cwd: string
 }
+export interface CreatedTeammate {
+  task: RecentTask
+  worker: Worker
+}
 export const MAX_IMAGES = 4
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 export interface ImageAttachment {
@@ -158,6 +162,10 @@ export interface CrewAPI {
   installContextHooks(): Promise<void>
   add(payload: TeammateInput): Promise<void>
   edit(payload: TeammateInput): Promise<void>
+  pickTaskFolder(): Promise<string | null>
+  createTask(
+    payload: Omit<TeammateInput, 'id'> & { cwd: string },
+  ): Promise<CreatedTeammate>
   approval(id: string): Promise<Approval>
   copyOpen(approval: { id: string }): Promise<void>
   refreshTasks(): Promise<void>

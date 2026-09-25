@@ -30,115 +30,18 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
   Empty,
   EmptyHeader,
-  EmptyContent,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
 } from '@/components/ui/empty'
 import type { RoomState, Worker, RecentTask, Approval } from '@/store'
+import { CreateTeammate } from '@/CreateTeammate'
 export const errorText = (e: unknown) =>
   e instanceof Error
     ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
     : String(e)
-export function Setup({ state }: { state: RoomState }) {
-  const [opening, setOpening] = useState(false),
-    [opened, setOpened] = useState(false),
-    [error, setError] = useState('')
-  const registered = !!state.relay.taskId
-  async function connect() {
-    setOpening(true)
-    setError('')
-    try {
-      await window.crew.setup()
-      setOpened(true)
-    } catch (e) {
-      setError(errorText(e))
-    } finally {
-      setOpening(false)
-    }
-  }
-  return (
-    <Empty
-      className="min-h-full items-start gap-8 px-10 py-10 text-left"
-      aria-label="Connect Crews"
-    >
-      <EmptyHeader className="items-start">
-        <EmptyTitle className="text-4xl font-semibold tracking-tight">
-          Set up Crews
-        </EmptyTitle>
-      </EmptyHeader>
-      <EmptyContent className="max-w-xl items-start gap-8">
-        <ol className="flex flex-col gap-4">
-          <li className="flex items-center gap-3">
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              1
-            </span>
-            <div>
-              <p className="text-base font-medium">Connect Codex</p>
-              <p className="text-sm text-muted-foreground">
-                Select Luna · Medium in Codex, then send the setup message.
-              </p>
-            </div>
-          </li>
-          <li className="flex items-center gap-3">
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              2
-            </span>
-            <div>
-              <p className="text-base font-medium">Add your agents</p>
-              <p className="text-sm text-muted-foreground">
-                Choose existing tasks and connect each one.
-              </p>
-            </div>
-          </li>
-          <li className="flex items-center gap-3">
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              3
-            </span>
-            <div>
-              <p className="text-base font-medium">Start chatting</p>
-              <p className="text-sm text-muted-foreground">
-                @mention an agent, or use @all for everyone.
-              </p>
-            </div>
-          </li>
-        </ol>
-        <Button onClick={() => void connect()} disabled={opening}>
-          <Link data-icon="inline-start" />
-          {opening
-            ? 'Opening Codex…'
-            : registered
-              ? 'Resume setup'
-              : opened
-                ? 'Reopen setup'
-                : 'Connect to Codex'}
-          <ArrowUpRight data-icon="inline-end" />
-        </Button>
-        {(opened || registered) && (
-          <p role="status" className="text-muted-foreground">
-            {registered
-              ? 'Paste the copied message in Codex and press Send.'
-              : 'Select Luna · Medium, then press Send in Codex.'}
-          </p>
-        )}
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-      </EmptyContent>
-    </Empty>
-  )
-}
+export { Setup } from './Setup'
+
 export function ConnectionLabel({ worker }: { worker: Worker }) {
   if (worker.connection === 'new') return <>Not connected</>
   if (worker.connection === 'awaiting') return <>Waiting for your approval</>
@@ -181,14 +84,18 @@ export function Teammates({
     [busy, setBusy] = useState(false),
     [copied, setCopied] = useState(false)
   const [filter, setFilter] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createdWorker, setCreatedWorker] = useState<Worker | null>(null)
   const [hooksInstalled, setHooksInstalled] = useState(false)
   const [installingHooks, setInstallingHooks] = useState(false)
-  const existing = state.workers.find((w) => w.id === selected?.id)
+  const existing =
+    state.workers.find((w) => w.id === selected?.id) ??
+    (createdWorker?.id === selected?.id ? createdWorker : undefined)
   const waiting =
     !!state.refreshRequestedAt &&
     (!state.recentAt || state.refreshRequestedAt > state.recentAt)
   const tasks = state.recent.filter((t) =>
-    `${t.title} ${t.cwd}`.toLowerCase().includes(filter.toLowerCase()),
+    `${t.title} ${t.cwd} ${t.id}`.toLowerCase().includes(filter.toLowerCase()),
   )
   function choose(task: RecentTask | Worker) {
     setSelected(task)
@@ -268,23 +175,44 @@ export function Teammates({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {approval
-              ? 'Connect @' + handle
-              : selected
-                ? existing
-                  ? 'Edit teammate'
-                  : 'Meet your teammate'
-                : 'Your teammates'}
+            {creating
+              ? 'Create teammate'
+              : approval
+                ? 'Connect @' + handle
+                : selected
+                  ? existing
+                    ? 'Edit teammate'
+                    : 'Meet your teammate'
+                  : 'Your teammates'}
           </DialogTitle>
-          {(approval || !selected) && (
+          {(creating || approval || !selected) && (
             <DialogDescription>
-              {approval
-                ? 'Approve this connection in the original Codex task. We’ll confirm it here when the task replies.'
-                : 'Choose from your local Codex desktop tasks.'}
+              {creating
+                ? 'Create a new Codex task in a folder you choose.'
+                : approval
+                  ? 'Approve this connection in the original Codex task. We’ll confirm it here when the task replies.'
+                  : 'Choose from your local Codex desktop tasks.'}
             </DialogDescription>
           )}
         </DialogHeader>
-        {approval ? (
+        {creating ? (
+          <CreateTeammate
+            onCancel={() => setCreating(false)}
+            onCreated={({ task, worker }) => {
+              setCreating(false)
+              setSelected(task)
+              setCreatedWorker(worker)
+              setTitle(worker.title)
+              setHandle(worker.handle)
+              setIdentity(worker.identity ?? '')
+              setError('')
+              setCopied(false)
+              void prepareAndOpen(task.id).catch((cause) =>
+                setError(errorText(cause)),
+              )
+            }}
+          />
+        ) : approval ? (
           <div className="flex flex-col gap-4">
             {existing?.connection === 'connected' ? (
               <Alert>
@@ -442,6 +370,16 @@ export function Teammates({
           </form>
         ) : (
           <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setError('')
+                setCreating(true)
+              }}
+            >
+              <Plus data-icon="inline-start" />
+              Create teammate
+            </Button>
             {state.workers.length > 0 && (
               <div className="flex flex-col gap-1">
                 <p className="mb-1 text-xs text-muted-foreground">

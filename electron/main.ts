@@ -1,4 +1,5 @@
 import { loadTaskCatalog } from '../backend/task-catalog.js'
+import { createCodexTask, CreatedTaskError } from '../backend/create-task.js'
 import { installContextHooks } from '../backend/hooks.js'
 import {
   app,
@@ -17,6 +18,8 @@ import { attempt, attemptAsync } from '../backend/errors.js'
 import { validateImageIds } from '../backend/attachments.js'
 import { registerImageHandlers } from './images.js'
 import { Room } from '../backend/room.js'
+import { validateTeammate } from '../backend/domain.js'
+import { randomUUID } from 'node:crypto'
 import { atomicWrite, object, string, uuid } from '../backend/storage.js'
 import {
   dataDirectory,
@@ -173,6 +176,50 @@ else {
       })
       handle('room:add', (value) => room.add(input(value)))
       handle('room:edit', (value) => room.edit(input(value)))
+      handle('room:pick-folder', async () => {
+        const result = await dialog.showOpenDialog(window!, {
+          title: 'Choose a folder for the new Codex task',
+          defaultPath: app.getPath('home'),
+          properties: ['openDirectory'],
+        })
+        return result.canceled ? null : (result.filePaths[0] ?? null)
+      })
+      let creatingTask = false
+      handle('room:create-task', async (value) => {
+        if (creatingTask)
+          throw new Error('Wait for the current task creation to finish.')
+        creatingTask = true
+        try {
+          const v = object(value)
+          const draft = input({ ...v, id: randomUUID() })
+          validateTeammate(room.state, draft)
+          const created = await createCodexTask({
+            title: draft.title,
+            cwd: string(v.cwd, 'folder'),
+          })
+          try {
+            room.receive({
+              kind: 'catalog',
+              tasks: created.catalog,
+              catalogVersion: 1,
+            })
+            room.add({ ...draft, id: created.task.id })
+          } catch (error) {
+            throw new CreatedTaskError(created.task.id, error)
+          }
+          const worker = room
+            .snapshot()
+            .workers.find((w) => w.id === created.task.id)
+          if (!worker)
+            throw new CreatedTaskError(
+              created.task.id,
+              'Teammate was saved but could not be read back.',
+            )
+          return { task: created.task, worker }
+        } finally {
+          creatingTask = false
+        }
+      })
       // Share concurrent picker refreshes and publish only a complete catalog.
       let catalogRefresh: Promise<void> | null = null
       handle('room:refresh', () => {
