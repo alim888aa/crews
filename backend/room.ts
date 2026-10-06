@@ -351,6 +351,18 @@ export class Room extends EventEmitter {
       managed.turnAttempted = true
     })
   }
+  markManagedTurnRejected(workerId: string, threadId: string) {
+    this.transaction((state) => {
+      const managed = state.workers.find(
+        (item) => item.id === workerId,
+      )?.managed
+      if (!managed || managed.threadId !== threadId)
+        throw invalidRequest(
+          'Managed Codex session changed after turn rejection.',
+        )
+      managed.turnAttempted = false
+    })
+  }
   clearEmptyManagedThread(workerId: string, threadId: string) {
     this.transaction((state) => {
       const managed = state.workers.find(

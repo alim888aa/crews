@@ -4,10 +4,195 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import {
+  AppServerRequestError,
+  type AppServerClient,
+} from '../backend/app-server.js'
 import { Room, receipt, receiptPath } from '../backend/room.js'
 import { claimBatch, inFlight } from '../backend/relay.js'
 import { atomicWrite } from '../backend/storage.js'
-import { managedPrompt } from '../backend/managed-workers.js'
+import {
+  managedPrompt,
+  startManagedTurn,
+  startManagedWorkers,
+} from '../backend/managed-workers.js'
+
+function managedClient(
+  request: (method: string) => Promise<unknown>,
+): AppServerClient {
+  return {
+    request,
+    onNotification: () => () => {},
+  } as unknown as AppServerClient
+}
+
+function fullPermissions(threadId: string) {
+  return {
+    thread: { id: threadId },
+    activePermissionProfile: { id: ':danger-full-access' },
+    approvalPolicy: 'never',
+    approvalsReviewer: 'auto_review',
+    sandbox: { type: 'dangerFullAccess' },
+  }
+}
+
+test('a crash between managed claim and receipt holds a visible Retry', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crews-managed-'))
+  try {
+    const room = new Room(directory)
+    const workerId = randomUUID()
+    room.addManaged(
+      { id: workerId, title: 'Managed', handle: 'managed' },
+      {
+        cwd: directory,
+        model: 'gpt-6-sol',
+        effort: 'low',
+        permission: 'full',
+        threadId: null,
+      },
+    )
+    room.send({ text: '@managed hello', parentId: null })
+    const deliveryId = room.state.deliveries[0]!.id
+    const claim = path.join(directory, 'claims', deliveryId)
+    fs.writeFileSync(claim, '{"prompt":"frozen"}')
+    const reopened = new Room(directory)
+    const stop = startManagedWorkers(reopened, '/runtime', ['node'])
+    assert.equal(receipt(directory, deliveryId)?.status, 'attention')
+    assert.equal(receipt(directory, deliveryId)?.failure, 'uncertain')
+    assert.equal(fs.existsSync(claim), true)
+    stop()
+    reopened.retryManaged(deliveryId)
+    assert.equal(fs.existsSync(claim), false)
+    assert.equal(receipt(directory, deliveryId), undefined)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('an explicitly rejected first turn can replace its empty thread on Retry', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crews-managed-'))
+  try {
+    const room = new Room(directory)
+    const workerId = randomUUID()
+    const firstId = randomUUID()
+    const secondId = randomUUID()
+    room.addManaged(
+      { id: workerId, title: 'Managed', handle: 'managed' },
+      {
+        cwd: directory,
+        model: 'gpt-6-sol',
+        effort: 'low',
+        permission: 'full',
+        threadId: null,
+      },
+    )
+    const first = managedClient(async (method) => {
+      if (method === 'thread/start') return fullPermissions(firstId)
+      if (method === 'thread/name/set') return {}
+      if (method === 'turn/start')
+        throw new AppServerRequestError({ code: -32600, message: 'rejected' })
+      throw new Error(`Unexpected ${method}`)
+    })
+    await assert.rejects(
+      startManagedTurn(first, room, room.state.workers[0]!, 'hello'),
+      AppServerRequestError,
+    )
+    assert.equal(room.state.workers[0]?.managed?.threadId, firstId)
+    assert.equal(room.state.workers[0]?.managed?.turnAttempted, false)
+    const calls: string[] = []
+    const second = managedClient(async (method) => {
+      calls.push(method)
+      if (method === 'thread/resume') throw new Error('no rollout found')
+      if (method === 'thread/start') return fullPermissions(secondId)
+      if (method === 'thread/name/set') return {}
+      if (method === 'turn/start') return { turn: { id: randomUUID() } }
+      throw new Error(`Unexpected ${method}`)
+    })
+    const started = await startManagedTurn(
+      second,
+      room,
+      room.state.workers[0]!,
+      'hello',
+    )
+    assert.equal(started.threadId, secondId)
+    assert.deepEqual(calls, [
+      'thread/resume',
+      'thread/start',
+      'thread/name/set',
+      'turn/start',
+    ])
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('an uncertain first-turn outcome keeps the original thread', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crews-managed-'))
+  try {
+    const room = new Room(directory)
+    const workerId = randomUUID()
+    const threadId = randomUUID()
+    room.addManaged(
+      { id: workerId, title: 'Managed', handle: 'managed' },
+      {
+        cwd: directory,
+        model: 'gpt-6-sol',
+        effort: 'low',
+        permission: 'full',
+        threadId: null,
+      },
+    )
+    const client = managedClient(async (method) => {
+      if (method === 'thread/start') return fullPermissions(threadId)
+      if (method === 'thread/name/set') return {}
+      if (method === 'turn/start') throw new Error('connection lost')
+      throw new Error(`Unexpected ${method}`)
+    })
+    await assert.rejects(
+      startManagedTurn(client, room, room.state.workers[0]!, 'hello'),
+      /connection lost/,
+    )
+    assert.equal(room.state.workers[0]?.managed?.turnAttempted, true)
+    assert.equal(room.state.workers[0]?.managed?.threadId, threadId)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a permission mismatch keeps the returned thread ID and blocks its turn', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crews-managed-'))
+  try {
+    const room = new Room(directory)
+    const workerId = randomUUID()
+    const threadId = randomUUID()
+    const calls: string[] = []
+    room.addManaged(
+      { id: workerId, title: 'Managed', handle: 'managed' },
+      {
+        cwd: directory,
+        model: 'gpt-6-sol',
+        effort: 'low',
+        permission: 'full',
+        threadId: null,
+      },
+    )
+    const client = managedClient(async (method) => {
+      calls.push(method)
+      if (method === 'thread/start')
+        return { ...fullPermissions(threadId), approvalPolicy: 'on-request' }
+      throw new Error(`Unexpected ${method}`)
+    })
+    await assert.rejects(
+      startManagedTurn(client, room, room.state.workers[0]!, 'hello'),
+      /permissions/,
+    )
+    assert.deepEqual(calls, ['thread/start'])
+    assert.equal(room.state.workers[0]?.managed?.threadId, threadId)
+    assert.equal(room.state.workers[0]?.managed?.turnAttempted, false)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 test('Crews-owned teammates persist independently while the desktop relay skips them', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crews-managed-'))
