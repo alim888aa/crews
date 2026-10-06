@@ -9,9 +9,14 @@ import type {
   RoomState,
   RoomEvent,
   Receipt,
+  ManagedApproval,
   Teammate,
   TeammateInput,
+  ManagedSession,
+  HireDraft,
 } from '../shared/contracts.js'
+import { isOpenDelivery, isRelayRejection } from '../shared/contracts.js'
+import { isManagedWriterConflict } from '../shared/contracts.js'
 import {
   acceptEvent,
   newRoom,
@@ -42,13 +47,27 @@ export function receipt(directory: string, id: string): Receipt | undefined {
     throw invalidRequest('Invalid delivery receipt.')
   if (
     r.failure &&
-    !['approval', 'uncertain', 'task', 'storage'].includes(String(r.failure))
+    ![
+      'approval',
+      'relay-approval',
+      'uncertain',
+      'task',
+      'storage',
+      'writer',
+    ].includes(String(r.failure))
   )
     throw invalidRequest('Invalid delivery failure.')
   return r as unknown as Receipt
 }
 export class Room extends EventEmitter {
   state: SavedRoom
+  private pendingApprovals = new Map<
+    string,
+    {
+      approval: ManagedApproval
+      answer: (decision: 'accept' | 'decline') => void
+    }
+  >()
   constructor(readonly directory: string) {
     super()
     for (const f of ['events', 'processed', 'rejected', 'claims', 'receipts'])
@@ -106,6 +125,17 @@ export class Room extends EventEmitter {
         ...old,
         memberIds: input.memberIds,
       })
+      const removed = old.memberIds.filter(
+        (id) => !state.channels[index]!.memberIds.includes(id),
+      )
+      // Removing a member also withdraws any older guest invitation in this channel.
+      if (removed.length)
+        for (const message of state.messages.filter(
+          (item) => item.channelId === old.id && item.invitedGuestIds?.length,
+        ))
+          message.invitedGuestIds = message.invitedGuestIds!.filter(
+            (id) => !removed.includes(id),
+          )
     })
   }
   deleteChannel(id: string) {
@@ -114,18 +144,29 @@ export class Room extends EventEmitter {
     const removed = this.transaction((state) => {
       if (!state.channels.some((c) => c.id === id))
         throw invalidRequest('Unknown channel.')
+      if (
+        state.hireRequests.some(
+          (request) => request.channelId === id && request.status === 'pending',
+        )
+      )
+        throw invalidRequest(
+          'Resolve this channel’s pending hires before deleting it.',
+        )
       const messages = state.messages.filter((m) => m.channelId === id)
       const messageIds = new Set(messages.map((m) => m.id))
       const deliveries = state.deliveries.filter((d) =>
         messageIds.has(d.rootId),
       )
       // Recheck here, not when the confirmation opens: new work may have arrived.
-      if (deliveries.some((d) => d.status !== 'replied'))
+      if (deliveries.some(isOpenDelivery))
         throw invalidRequest(
           'Finish this channel’s pending replies before deleting it.',
         )
       state.channels = state.channels.filter((c) => c.id !== id)
       state.messages = state.messages.filter((m) => m.channelId !== id)
+      state.mentions = state.mentions.filter(
+        (mention) => !messageIds.has(mention.messageId),
+      )
       state.deliveries = state.deliveries.filter(
         (d) => !messageIds.has(d.rootId),
       )
@@ -182,13 +223,383 @@ export class Room extends EventEmitter {
       s.workers.push(validateTeammate(s, input))
     })
   }
+  addManaged(input: TeammateInput, managed: ManagedSession) {
+    this.transaction((state) => {
+      if (state.workers.some((worker) => worker.id === input.id))
+        throw invalidRequest('This teammate is already in the room.')
+      state.workers.push({
+        ...validateTeammate(state, input),
+        managed,
+        connection: 'connected',
+        connectedAt: Date.now(),
+      })
+    })
+  }
+  setManagedModel(
+    id: string,
+    model: string,
+    effort: string,
+    serviceTier?: ManagedSession['serviceTier'] | null,
+  ) {
+    if (!model.trim() || !effort.trim())
+      throw invalidRequest('Choose a model and reasoning effort.')
+    if (
+      serviceTier !== undefined &&
+      serviceTier !== null &&
+      serviceTier !== 'default' &&
+      serviceTier !== 'priority'
+    )
+      throw invalidRequest('Choose Codex default, Standard, or Fast mode.')
+    this.transaction((state) => {
+      const worker = state.workers.find((item) => item.id === id)
+      if (!worker?.managed || worker.archivedAt)
+        throw invalidRequest('Choose an active Crews-created teammate.')
+      worker.managed.model = model
+      worker.managed.effort = effort
+      if (serviceTier === null) delete worker.managed.serviceTier
+      else if (serviceTier !== undefined)
+        worker.managed.serviceTier = serviceTier
+    })
+  }
+  approveHire(id: string, draft: HireDraft, cwd: string) {
+    return this.transaction((state) => {
+      const request = state.hireRequests.find((item) => item.id === id)
+      if (!request || request.status !== 'pending')
+        throw invalidRequest('This hire request is no longer pending.')
+      const channel = state.channels.find(
+        (item) => item.id === request.channelId,
+      )
+      if (!channel) throw invalidRequest('The hiring channel no longer exists.')
+      const worker = validateTeammate(state, {
+        id: randomUUID(),
+        title: draft.title,
+        handle: draft.handle,
+        role: draft.role,
+        identity: draft.identity,
+      })
+      worker.managed = {
+        cwd,
+        model: draft.model,
+        effort: draft.effort,
+        ...(draft.serviceTier && { serviceTier: draft.serviceTier }),
+        permission: draft.permission,
+        threadId: null,
+      }
+      worker.connection = 'connected'
+      worker.connectedAt = Date.now()
+      state.workers.push(worker)
+      if (channel.id !== 'general') channel.memberIds.push(worker.id)
+      request.draft = { ...draft, cwd }
+      request.status = 'approved'
+      request.resolvedAt = Date.now()
+      request.workerId = worker.id
+      return worker
+    })
+  }
+  declineHire(id: string) {
+    this.transaction((state) => {
+      const request = state.hireRequests.find((item) => item.id === id)
+      if (!request || request.status !== 'pending')
+        throw invalidRequest('This hire request is no longer pending.')
+      request.status = 'declined'
+      request.resolvedAt = Date.now()
+    })
+  }
+  archiveTeammate(id: string) {
+    this.transaction((state) => {
+      const worker = state.workers.find((item) => item.id === id)
+      if (!worker) throw invalidRequest('Unknown teammate.')
+      if (worker.archivedAt)
+        throw invalidRequest('This teammate is already archived.')
+      if (
+        state.deliveries.some(
+          (delivery) => delivery.workerId === id && isOpenDelivery(delivery),
+        )
+      )
+        throw invalidRequest(
+          'Finish this teammate’s pending replies before firing them.',
+        )
+      worker.archivedAt = Date.now()
+    })
+  }
+  restoreTeammate(id: string) {
+    this.transaction((state) => {
+      const worker = state.workers.find((item) => item.id === id)
+      if (!worker?.archivedAt)
+        throw invalidRequest('This teammate is not archived.')
+      delete worker.archivedAt
+    })
+  }
+  setManagedThread(workerId: string, threadId: string) {
+    this.transaction((state) => {
+      const worker = state.workers.find((item) => item.id === workerId)
+      if (!worker?.managed) throw invalidRequest('Unknown managed teammate.')
+      if (worker.managed.threadId && worker.managed.threadId !== threadId)
+        throw invalidRequest('This teammate already has a Codex session.')
+      worker.managed.threadId = threadId
+      worker.managed.turnAttempted = false
+      state.recent = state.recent.filter((task) => task.id !== threadId)
+    })
+  }
+  markManagedTurnAttempted(workerId: string, threadId: string) {
+    this.transaction((state) => {
+      const managed = state.workers.find(
+        (item) => item.id === workerId,
+      )?.managed
+      if (!managed || managed.threadId !== threadId)
+        throw invalidRequest('Managed Codex session changed before turn start.')
+      managed.turnAttempted = true
+    })
+  }
+  clearEmptyManagedThread(workerId: string, threadId: string) {
+    this.transaction((state) => {
+      const managed = state.workers.find(
+        (item) => item.id === workerId,
+      )?.managed
+      if (
+        !managed ||
+        managed.threadId !== threadId ||
+        managed.turnAttempted !== false
+      )
+        throw invalidRequest(
+          'Cannot replace a Codex session that may have worked.',
+        )
+      managed.threadId = null
+    })
+  }
+  managedRetryTarget(deliveryId: string) {
+    const delivery = this.state.deliveries.find(
+      (item) => item.id === deliveryId,
+    )
+    const worker = this.state.workers.find(
+      (item) => item.id === delivery?.workerId,
+    )
+    const previous = receipt(this.directory, deliveryId)
+    if (
+      !delivery ||
+      delivery.status !== 'pending' ||
+      !worker?.managed ||
+      previous?.status !== 'attention' ||
+      !['task', 'uncertain', 'writer'].includes(previous.failure ?? '')
+    )
+      throw invalidRequest('This managed delivery is not ready to retry.')
+    return { delivery, worker, previous }
+  }
+  replaceManagedThread(
+    deliveryId: string,
+    oldThreadId: string,
+    newThreadId: string,
+  ) {
+    this.transaction((state) => {
+      const delivery = state.deliveries.find((item) => item.id === deliveryId)
+      const worker = state.workers.find(
+        (item) => item.id === delivery?.workerId,
+      )
+      const previous = receipt(this.directory, deliveryId)
+      if (
+        !delivery ||
+        delivery.status !== 'pending' ||
+        !worker?.managed ||
+        worker.managed.threadId !== oldThreadId ||
+        !isManagedWriterConflict(
+          previous?.failure,
+          previous?.detail,
+          oldThreadId,
+        ) ||
+        oldThreadId === newThreadId
+      )
+        throw invalidRequest('This teammate changed during recovery.')
+      worker.managed.threadId = newThreadId
+      // A fork has saved history, so never treat it as an empty disposable task.
+      worker.managed.turnAttempted = true
+      state.recent = state.recent.filter((task) => task.id !== newThreadId)
+    })
+  }
+  retryManaged(deliveryId: string) {
+    this.managedRetryTarget(deliveryId)
+    // The claim is removed for an explicit retry, but later queue folding must
+    // still know this delivery was dispatched before.
+    this.transaction((state) => {
+      state.deliveries.find(
+        (item) => item.id === deliveryId,
+      )!.previouslyClaimed = true
+    })
+    fs.rmSync(path.join(this.directory, 'claims', deliveryId), { force: true })
+    fs.rmSync(receiptPath(this.directory, deliveryId), { force: true })
+    this.transaction(() => {})
+  }
+  resolveRejectedConversation(rootId: string, workerId: string) {
+    this.transaction((state) => {
+      const worker = state.workers.find((item) => item.id === workerId)
+      if (!worker || worker.managed)
+        throw invalidRequest('Choose a connected Desktop teammate.')
+      const pending = state.deliveries.filter(
+        (item) =>
+          item.rootId === rootId &&
+          item.workerId === workerId &&
+          item.status === 'pending',
+      )
+      if (!pending.length)
+        throw invalidRequest('No pending replies remain in this conversation.')
+      const rejected = pending.some((item) => {
+        const result = receipt(this.directory, item.id)
+        return (
+          result?.status === 'attention' &&
+          isRelayRejection(result.failure, result.detail)
+        )
+      })
+      if (!rejected)
+        throw invalidRequest(
+          'Only a relay-rejected conversation can be marked handled.',
+        )
+      for (const item of pending) {
+        const result = receipt(this.directory, item.id)
+        const hasClaim = fs.existsSync(
+          path.join(this.directory, 'claims', item.id),
+        )
+        if (
+          state.deliveries.some(
+            (later) =>
+              later.roundId === item.roundId && later.status === 'waiting',
+          )
+        )
+          throw invalidRequest(
+            'Later teammates are waiting in this ordered round. Resolve their turns first.',
+          )
+        // Never cancel a turn that might already be running or have been sent.
+        if (
+          item.startedAt !== undefined ||
+          (hasClaim && result === undefined) ||
+          (result !== undefined &&
+            !(
+              result.status === 'attention' &&
+              isRelayRejection(result.failure, result.detail)
+            ))
+        )
+          throw invalidRequest(
+            'A reply may already be running. Check its task first.',
+          )
+      }
+      for (const item of pending) {
+        item.status = 'resolved'
+        item.resolvedAt = Date.now()
+      }
+    })
+  }
+  requestManagedApproval(
+    workerId: string,
+    deliveryId: string,
+    method: string,
+    rawParams: unknown,
+    signal: AbortSignal,
+    fileChanges?: Array<{ path: string; kind: string; diff: string }>,
+  ): Promise<unknown> {
+    if (
+      ![
+        'item/commandExecution/requestApproval',
+        'item/fileChange/requestApproval',
+        'item/permissions/requestApproval',
+        'execCommandApproval',
+        'applyPatchApproval',
+      ].includes(method)
+    )
+      throw invalidRequest(`Crews cannot handle Codex request ${method}.`)
+    const params = object(rawParams)
+    const fileChangeRequest =
+      method === 'item/fileChange/requestApproval' ||
+      method === 'applyPatchApproval'
+    // An approval without the patch would ask the user to approve a blind edit.
+    const declineBlindEdit = () =>
+      method === 'applyPatchApproval'
+        ? {
+            decision: {
+              denied: {
+                rejection: 'No reviewable file changes were provided.',
+              },
+            },
+          }
+        : { decision: 'decline' }
+    if (
+      fileChangeRequest &&
+      (!fileChanges?.length ||
+        fileChanges.some(
+          (change) => !change.path || !change.kind || !change.diff,
+        ))
+    )
+      return Promise.resolve(declineBlindEdit())
+    const changeDetails = fileChanges
+      ?.map((change) => `${change.kind}: ${change.path}\n${change.diff}`)
+      .join('\n\n')
+    if (changeDetails && changeDetails.length > 60_000)
+      return Promise.resolve(declineBlindEdit())
+    const id = randomUUID()
+    const approval: ManagedApproval = {
+      id,
+      workerId,
+      deliveryId,
+      summary:
+        method === 'item/permissions/requestApproval'
+          ? 'Additional access requested'
+          : method.includes('fileChange') || method === 'applyPatchApproval'
+            ? 'File changes requested'
+            : 'Command approval requested',
+      detail: [
+        typeof params.reason === 'string' ? params.reason : '',
+        typeof params.command === 'string' ? params.command : '',
+        typeof params.cwd === 'string' ? `Folder: ${params.cwd}` : '',
+        typeof params.grantRoot === 'string'
+          ? `Additional write root: ${params.grantRoot}`
+          : '',
+        params.permissions ? JSON.stringify(params.permissions) : '',
+        changeDetails ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    }
+    return new Promise((resolve) => {
+      const answer = (decision: 'accept' | 'decline') => {
+        if (!this.pendingApprovals.has(id)) return
+        signal.removeEventListener('abort', abort)
+        this.pendingApprovals.delete(id)
+        this.emit('change', this.snapshot())
+        if (method === 'item/permissions/requestApproval')
+          resolve({
+            permissions: decision === 'accept' ? params.permissions : {},
+            scope: 'turn',
+          })
+        else if (
+          method === 'execCommandApproval' ||
+          method === 'applyPatchApproval'
+        )
+          resolve({
+            decision:
+              decision === 'accept'
+                ? 'approved'
+                : { denied: { rejection: 'Declined in Crews.' } },
+          })
+        else resolve({ decision })
+      }
+      const abort = () => answer('decline')
+      this.pendingApprovals.set(id, { approval, answer })
+      signal.addEventListener('abort', abort, { once: true })
+      this.emit('change', this.snapshot())
+      if (signal.aborted) abort()
+    })
+  }
+  answerManagedApproval(id: string, decision: 'accept' | 'decline') {
+    if (decision !== 'accept' && decision !== 'decline')
+      throw invalidRequest('Choose Allow or Decline.')
+    const pending = this.pendingApprovals.get(id)
+    if (!pending) throw invalidRequest('This approval request has expired.')
+    pending.answer(decision)
+  }
   edit(input: TeammateInput) {
     this.transaction((s) => {
       const index = s.workers.findIndex((w) => w.id === input.id)
       if (index < 0) throw invalidRequest('Unknown teammate.')
       if (
         s.workers[index]!.handle !== input.handle &&
-        s.deliveries.some((d) => d.status !== 'replied')
+        s.deliveries.some(isOpenDelivery)
       )
         throw invalidRequest(
           'Finish pending deliveries before changing an @name. Display names can be edited now.',
@@ -200,6 +611,7 @@ export class Room extends EventEmitter {
     return this.transaction((s) => {
       const w = s.workers.find((w) => w.id === id)
       if (!w) throw invalidRequest('Unknown teammate.')
+      if (w.archivedAt) throw invalidRequest('Restore this teammate first.')
       // Reopening a waiting approval keeps its token valid for a prompt already copied.
       if (w.connection !== 'awaiting') w.token = randomUUID()
       w.connection = 'awaiting'
@@ -207,13 +619,93 @@ export class Room extends EventEmitter {
     })
   }
   receive(event: RoomEvent) {
-    this.transaction((s) => acceptEvent(s, event))
+    const previousMentions = new Set(
+      this.state.mentions.map((mention) => mention.messageId),
+    )
+    this.transaction((s) => {
+      const firstTake =
+        event.kind === 'started' &&
+        s.deliveries.some(
+          (delivery) =>
+            delivery.id === event.deliveryId &&
+            delivery.workerId === event.workerId &&
+            delivery.startedAt === undefined,
+        )
+      acceptEvent(
+        s,
+        event,
+        (delivery) =>
+          !delivery.previouslyClaimed &&
+          !fs.existsSync(path.join(this.directory, 'claims', delivery.id)) &&
+          !receipt(this.directory, delivery.id),
+        (delivery) =>
+          !delivery.previouslyClaimed &&
+          fs.existsSync(path.join(this.directory, 'claims', delivery.id)) &&
+          ['claimed', 'sent'].includes(
+            receipt(this.directory, delivery.id)?.status ?? '',
+          ),
+      )
+      if (!firstTake || event.kind !== 'started') return
+      const active = s.deliveries.find(
+        (delivery) => delivery.id === event.deliveryId,
+      )!
+      if (active.previouslyClaimed) return
+      for (const queued of s.deliveries) {
+        if (
+          queued.id === active.id ||
+          queued.workerId !== active.workerId ||
+          queued.rootId !== active.rootId ||
+          queued.roundId !== active.roundId ||
+          queued.status !== 'pending' ||
+          queued.startedAt !== undefined ||
+          queued.previouslyClaimed ||
+          fs.existsSync(path.join(this.directory, 'claims', queued.id))
+        )
+          continue
+        const message = s.messages.find((item) => item.id === queued.messageId)
+        const round = s.messages.find((item) => item.id === queued.roundId)
+        // Keep human requests and ordered handoffs separate. Only an unclaimed
+        // simultaneous peer tag can be covered by this freshly started turn.
+        if (
+          !message ||
+          message.authorId === 'user' ||
+          round?.mode !== 'simultaneous'
+        )
+          continue
+        queued.status = 'resolved'
+        queued.resolvedAt = Date.now()
+        queued.coalescedInto = active.id
+        active.coalescedMessageIds ??= []
+        active.coalescedMessageIds.push(
+          queued.messageId,
+          ...(queued.coalescedMessageIds ?? []),
+        )
+      }
+    })
+    if (
+      event.kind === 'reply' ||
+      event.kind === 'progress' ||
+      event.kind === 'conversation-start' ||
+      event.kind === 'conversation-post'
+    ) {
+      const added = this.state.mentions.find(
+        (mention) => !previousMentions.has(mention.messageId),
+      )
+      const message = this.state.messages.find(
+        (item) => item.id === added?.messageId,
+      )
+      if (message) this.emit('humanMention', message)
+    }
     if (event.kind === 'connect') {
       for (const d of this.state.deliveries.filter(
         (d) => d.workerId === event.workerId && d.status === 'pending',
       )) {
         const old = receipt(this.directory, d.id)
-        if (old?.failure === 'approval')
+        // Older builds stored relay review rejections as generic approval.
+        if (
+          old?.failure === 'approval' &&
+          !old.detail.startsWith('Codex rejected the dispatch')
+        )
           atomicWrite(receiptPath(this.directory, d.id), {
             ...old,
             failure: 'task',
@@ -222,6 +714,29 @@ export class Room extends EventEmitter {
           })
       }
     }
+  }
+  readMentions(rootId: string) {
+    if (
+      !this.state.messages.some(
+        (message) => message.id === rootId && message.rootId === rootId,
+      )
+    )
+      throw invalidRequest('Unknown conversation.')
+    const unread = this.state.mentions.some((mention) => {
+      const message = this.state.messages.find(
+        (item) => item.id === mention.messageId,
+      )
+      return message?.rootId === rootId && mention.readAt === undefined
+    })
+    if (!unread) return
+    this.transaction((state) => {
+      for (const mention of state.mentions) {
+        const message = state.messages.find(
+          (item) => item.id === mention.messageId,
+        )
+        if (message?.rootId === rootId) mention.readAt ??= Date.now()
+      }
+    })
   }
   drain() {
     for (const name of fs
@@ -256,8 +771,7 @@ export class Room extends EventEmitter {
     const start =
       typeof host.startedAt === 'number' ? host.startedAt : Date.now()
     const deliveries = this.state.deliveries.map((d) => {
-      const r =
-        d.status !== 'replied' ? receipt(this.directory, d.id) : undefined
+      const r = isOpenDelivery(d) ? receipt(this.directory, d.id) : undefined
       return {
         ...d,
         relayStatus: r?.status,
@@ -267,12 +781,19 @@ export class Room extends EventEmitter {
     })
     return {
       ...this.state,
+      managedApprovals: [...this.pendingApprovals.values()].map(
+        ({ approval }) => approval,
+      ),
       deliveries,
       workers: this.state.workers.map((w) => {
         const open = deliveries.filter(
-          (d) => d.workerId === w.id && d.status !== 'replied',
+          (d) => d.workerId === w.id && isOpenDelivery(d),
         )
-        const permission = open.some((d) => d.failure === 'approval')
+        const permission = open.some(
+          (d) =>
+            d.failure === 'approval' &&
+            !d.error?.startsWith('Codex rejected the dispatch'),
+        )
         return {
           ...w,
           connection:

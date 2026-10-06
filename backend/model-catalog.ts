@@ -7,6 +7,18 @@ function record(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+function fastTier(model: Record<string, unknown>): 'priority' | 'fast' | null {
+  const tiers = Array.isArray(model.serviceTiers)
+    ? model.serviceTiers.map((value) => record(value, 'model service tier').id)
+    : []
+  const supported = tiers.find((id) => id === 'priority' || id === 'fast')
+  if (supported === 'priority' || supported === 'fast') return supported
+  return Array.isArray(model.additionalSpeedTiers) &&
+    model.additionalSpeedTiers.includes('fast')
+    ? 'priority'
+    : null
+}
+
 /** Read the signed-in desktop account's visible models and their allowed efforts. */
 export async function fetchModelCatalog(
   request: AppServerRequest,
@@ -52,6 +64,7 @@ export async function fetchModelCatalog(
           typeof model.description === 'string' ? model.description : '',
         efforts: [...new Set(efforts)],
         defaultEffort: model.defaultReasoningEffort,
+        fastServiceTier: fastTier(model),
         isDefault: model.isDefault === true,
       })
     }
@@ -84,4 +97,16 @@ export function validateModelChoice(
   if (!selected) throw new Error('Choose an available Codex model.')
   if (!selected.efforts.includes(effort))
     throw new Error('Choose an effort supported by that model.')
+}
+
+export function validateServiceTierChoice(
+  models: CodexModelOption[],
+  model: string,
+  serviceTier: 'default' | 'priority' | null | undefined,
+): void {
+  if (
+    serviceTier === 'priority' &&
+    !models.find((item) => item.model === model)?.fastServiceTier
+  )
+    throw new Error('Fast mode is unavailable for that model.')
 }

@@ -55,6 +55,11 @@ void (async () => {
   let holdSend = false
   let rejectMembers = false
   let pendingSendCount = 0
+  let holdTaskCreation = false
+  let releaseTaskCreation: (() => void) | undefined
+  let holdChannelSave = false
+  let releaseChannelSave: (() => void) | undefined
+  const openedConnections: string[] = []
   const pickers: Array<{
     resolve: (result: Electron.OpenDialogReturnValue) => void
     reject: (error: Error) => void
@@ -67,7 +72,51 @@ void (async () => {
     ipcMain.handle(channel, (_event, value) => fn(value)),
   )
   ipcMain.handle('room:snapshot', () => room.snapshot())
-  ipcMain.handle('room:create-channel', (_event, payload) => {
+  ipcMain.handle('room:models', () => [
+    {
+      model: 'gpt-6-luna',
+      displayName: 'GPT-6-Luna',
+      description: 'Fixture model',
+      efforts: ['low'],
+      defaultEffort: 'low',
+      isDefault: true,
+    },
+  ])
+  ipcMain.handle('room:create-task', async (_event, input) => {
+    if (holdTaskCreation)
+      await new Promise<void>((resolve) => {
+        releaseTaskCreation = resolve
+      })
+    const id = randomUUID()
+    room.addManaged(
+      {
+        id,
+        title: input.title as string,
+        handle: input.handle as string,
+        identity: input.identity as string,
+        role: input.role as string,
+      },
+      {
+        cwd: input.cwd as string,
+        model: input.model as string,
+        effort: input.effort as string,
+        permission: input.permission as 'auto' | 'full',
+        threadId: null,
+      },
+    )
+    broadcast()
+    return {
+      worker: room.snapshot().workers.find((worker) => worker.id === id),
+    }
+  })
+  ipcMain.handle('room:copy-open', (_event, input) => {
+    openedConnections.push(input.id as string)
+  })
+  ipcMain.handle('room:create-channel', async (_event, payload) => {
+    if (holdChannelSave)
+      await new Promise<void>((resolve) => {
+        releaseChannelSave = resolve
+      })
     const channel = room.createChannel(payload)
     broadcast()
     return channel
@@ -111,13 +160,25 @@ void (async () => {
     await click('New channel')
     await until(`document.getElementById('channel-name')`)
     await type(`document.getElementById('channel-name')`, 'project')
-    await js(`document.querySelector('input[type="checkbox"]').click()`)
+    await js(`document.querySelector('[role="checkbox"]').click()`)
     await js(
       `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Create channel').click()`,
     )
     await until(`document.querySelector('main h1')?.textContent === 'project'`)
     const project = room.state.channels.find((c) => c.name === 'project')!
     assert.deepEqual(project.memberIds, [engineer.id])
+    assert.equal(
+      await js(
+        `Boolean(document.querySelector('[aria-label="Room and teammates"] [aria-label="View profile for engineer"]'))`,
+      ),
+      true,
+    )
+    assert.equal(
+      await js(
+        `Boolean(document.querySelector('[aria-label="Room and teammates"] [aria-label="View profile for vp"]'))`,
+      ),
+      false,
+    )
     assert.equal(await js(`${mainText}.value`), '')
     assert.equal(
       await js(
@@ -151,6 +212,12 @@ void (async () => {
     )
     await click('Open #general')
     await until(`${mainText}.value === '@engineer general draft'`)
+    assert.equal(
+      await js(
+        `Boolean(document.querySelector('[aria-label="Room and teammates"] [aria-label="View profile for vp"]'))`,
+      ),
+      true,
+    )
     await click('Open #project')
     await until(`${mainText}.value === ''`)
     await type(mainText, '@engineer delayed send')
@@ -249,10 +316,10 @@ void (async () => {
     )
     await click('Manage channel members')
     await until(
-      `document.querySelectorAll('[role="dialog"] input[type="checkbox"]').length === 2`,
+      `document.querySelectorAll('[role="dialog"] [role="checkbox"]').length === 2`,
     )
     await js(
-      `document.querySelectorAll('[role="dialog"] input[type="checkbox"]')[1].click()`,
+      `document.querySelectorAll('[role="dialog"] [role="checkbox"]')[1].click()`,
     )
     rejectMembers = true
     await js(
@@ -274,6 +341,135 @@ void (async () => {
       new Set(room.state.channels.find((c) => c.id === project.id)!.memberIds),
       new Set([engineer.id, vp.id]),
     )
+    await click('New channel')
+    await until(`document.getElementById('channel-name')`)
+    await type(`document.getElementById('channel-name')`, 'new-team')
+    await js(
+      `document.querySelector('[role="dialog"] [role="checkbox"]').click()`,
+    )
+    await js(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Create teammate').click()`,
+    )
+    await until(`document.getElementById('new-teammate-name')`)
+    await type(`document.getElementById('new-teammate-name')`, 'New Worker')
+    await type(`document.getElementById('new-teammate-folder')`, directory)
+    assert.equal(
+      await js(`document.getElementById('new-teammate-permission').value`),
+      'full',
+    )
+    await js(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Create teammate').click()`,
+    )
+    await until(`document.getElementById('channel-name')`)
+    const newWorker = room.state.workers.find(
+      (worker) => worker.handle === 'new-worker',
+    )!
+    assert.equal(
+      await js(`document.getElementById('channel-name').value`),
+      'new-team',
+    )
+    assert.equal(
+      await js(
+        `Boolean(document.getElementById('channel-member-${newWorker.id}')?.checked)`,
+      ),
+      true,
+    )
+    await js(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Create teammate').click()`,
+    )
+    await until(`document.getElementById('new-teammate-name')`)
+    await type(`document.getElementById('new-teammate-name')`, 'Second Worker')
+    await type(`document.getElementById('new-teammate-folder')`, directory)
+    holdTaskCreation = true
+    await js(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Create teammate').click()`,
+    )
+    while (!releaseTaskCreation)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    await until(
+      `document.querySelector('[role="dialog"]')?.textContent.includes('Creating teammate')`,
+    )
+    assert.equal(
+      await js(`document.querySelector('[data-slot="dialog-close"]')`),
+      null,
+    )
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    assert.equal(
+      await js(`Boolean(document.getElementById('new-teammate-name'))`),
+      true,
+    )
+    holdTaskCreation = false
+    releaseTaskCreation()
+    await until(`document.getElementById('channel-name')`)
+    const secondWorker = room.state.workers.find(
+      (worker) => worker.handle === 'second-worker',
+    )!
+    assert.equal(
+      await js(
+        `Boolean(document.getElementById('channel-member-${secondWorker.id}')?.checked)`,
+      ),
+      true,
+    )
+    await js(
+      `document.getElementById('channel-member-${secondWorker.id}').click()`,
+    )
+    assert.equal(
+      await js(
+        `Boolean(document.getElementById('channel-member-${secondWorker.id}')?.checked)`,
+      ),
+      false,
+    )
+    await js(
+      `document.getElementById('channel-member-${secondWorker.id}').click()`,
+    )
+    assert.equal(
+      await js(
+        `Boolean(document.getElementById('channel-member-${secondWorker.id}')?.checked)`,
+      ),
+      true,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    fs.writeFileSync(
+      '/private/tmp/crews-new-channel-draft.png',
+      (await win.webContents.capturePage()).toPNG(),
+    )
+    assert.deepEqual(openedConnections, [])
+    holdChannelSave = true
+    await js(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Create channel').click()`,
+    )
+    while (!releaseChannelSave)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    await until(`document.getElementById('channel-name')?.disabled`)
+    assert.equal(
+      await js(`document.querySelector('[data-slot="dialog-close"]')`),
+      null,
+    )
+    assert.equal(
+      await js(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.textContent === 'Cancel')?.disabled`,
+      ),
+      true,
+    )
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    assert.equal(
+      await js(`Boolean(document.getElementById('channel-name'))`),
+      true,
+    )
+    holdChannelSave = false
+    releaseChannelSave()
+    await until(`document.querySelector('main h1')?.textContent === 'new-team'`)
+    await until(`!document.querySelector('[role="dialog"]')`)
+    assert.deepEqual(openedConnections, [])
+    assert.deepEqual(
+      new Set(
+        room.state.channels.find((c) => c.name === 'new-team')!.memberIds,
+      ),
+      new Set([engineer.id, newWorker.id, secondWorker.id]),
+    )
     fs.writeFileSync(
       '/private/tmp/crews-channels-ui.png',
       (await win.webContents.capturePage()).toPNG(),
@@ -287,7 +483,7 @@ void (async () => {
       'project',
     )
     console.log(
-      'PASS channel creation, membership save/retry, guests, drafts, pending upload/send remount guards, late replies and restart',
+      'PASS channel creation with new teammate, membership save/retry, guests, drafts, pending upload/send remount guards, late replies and restart',
     )
   } catch (error) {
     console.error(error)

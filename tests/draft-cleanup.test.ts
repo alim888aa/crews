@@ -28,6 +28,7 @@ test('failed draft cleanup never blocks snapshots or turns a committed deletion 
           return () => {}
         },
         onError: () => () => {},
+        onOpenMention: () => () => {},
         snapshot: async () => snapshot,
         deleteChannel: async (id: string) => {
           snapshot = {
@@ -79,7 +80,9 @@ test('failed draft cleanup never blocks snapshots or turns a committed deletion 
   failWrites = true
   await assert.doesNotReject(store.deleteChannel('project'))
   assert.equal(
-    store.getSnapshot().channels.some((c: { id: string }) => c.id === 'project'),
+    store
+      .getSnapshot()
+      .channels.some((c: { id: string }) => c.id === 'project'),
     false,
   )
   assert.equal(store.getDrafts()['channel:project'], undefined)

@@ -1,6 +1,10 @@
 import { loadTaskCatalog } from '../backend/task-catalog.js'
-import { createCodexTask, CreatedTaskError } from '../backend/create-task.js'
-import { loadModelCatalog } from '../backend/model-catalog.js'
+import { validateManagedChoice } from '../backend/create-task.js'
+import {
+  loadModelCatalog,
+  validateModelChoice,
+  validateServiceTierChoice,
+} from '../backend/model-catalog.js'
 import { installContextHooks } from '../backend/hooks.js'
 import {
   app,
@@ -10,6 +14,7 @@ import {
   shell,
   dialog,
   protocol,
+  Notification,
 } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -21,6 +26,7 @@ import { registerImageHandlers } from './images.js'
 import { Room } from '../backend/room.js'
 import { validateTeammate } from '../backend/domain.js'
 import { parseTeammateInput } from './teammate-input.js'
+import { decodeHireDraft } from '../backend/schema.js'
 import { randomUUID } from 'node:crypto'
 import { atomicWrite, object, string, uuid } from '../backend/storage.js'
 import {
@@ -30,12 +36,21 @@ import {
   runtimeDirectory,
 } from '../backend/paths.js'
 import { installRuntime } from '../backend/runtime.js'
+import { startManagedWorkers } from '../backend/managed-workers.js'
+import { retryManagedDelivery } from '../backend/managed-retry.js'
 import { messageLink } from '../shared/links.js'
 import { setupApproval, connectionApproval } from '../backend/prompts.js'
 const build = path.dirname(fileURLToPath(import.meta.url)),
   root = path.dirname(build)
 const directory = dataDirectory(),
   runtime = runtimeDirectory()
+function optionalServiceTier(
+  value: unknown,
+): 'default' | 'priority' | undefined {
+  if (value === undefined) return undefined
+  if (value === 'default' || value === 'priority') return value
+  throw new Error('Choose Codex default, Standard, or Fast mode.')
+}
 const executable = ['/usr/bin/env', 'ELECTRON_RUN_AS_NODE=1', process.execPath]
 fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
 app.setPath(
@@ -132,6 +147,7 @@ else {
             : { channelId: string(v.channelId, 'channel ID') }),
         })
       })
+      handle('room:read-mentions', (value) => room.readMentions(uuid(value)))
       const channelMembers = (value: unknown) => {
         if (!Array.isArray(value)) throw new Error('Invalid channel members.')
         return value.map(uuid)
@@ -162,7 +178,30 @@ else {
       })
       handle('room:add', (value) => room.add(parseTeammateInput(value)))
       handle('room:edit', (value) => room.edit(parseTeammateInput(value)))
+      handle('room:archive-teammate', (value) =>
+        room.archiveTeammate(uuid(value)),
+      )
+      handle('room:restore-teammate', (value) =>
+        room.restoreTeammate(uuid(value)),
+      )
       handle('room:models', () => loadModelCatalog())
+      handle('room:managed-model', async (value) => {
+        const payload = object(value)
+        const id = uuid(payload.id)
+        const worker = room.state.workers.find((item) => item.id === id)
+        if (!worker?.managed || worker.archivedAt)
+          throw new Error('Choose an active Crews-created teammate.')
+        const model = string(payload.model, 'model')
+        const effort = string(payload.effort, 'effort')
+        const serviceTier =
+          payload.serviceTier === null
+            ? null
+            : optionalServiceTier(payload.serviceTier)
+        const models = await loadModelCatalog()
+        validateModelChoice(models, model, effort)
+        validateServiceTierChoice(models, model, serviceTier)
+        room.setManagedModel(id, model, effort, serviceTier)
+      })
       handle('room:pick-folder', async () => {
         const result = await dialog.showOpenDialog(window!, {
           title: 'Choose a folder for the new Codex task',
@@ -178,36 +217,75 @@ else {
         creatingTask = true
         try {
           const v = object(value)
+          const serviceTier = optionalServiceTier(v.serviceTier)
           const draft = parseTeammateInput({ ...v, id: randomUUID() })
           validateTeammate(room.state, draft)
-          const created = await createCodexTask({
-            title: draft.title,
+          const cwd = await validateManagedChoice({
             cwd: string(v.cwd, 'folder'),
             model: string(v.model, 'model'),
             effort: string(v.effort, 'effort'),
+            serviceTier,
+            permission: string(v.permission, 'permission') as 'auto' | 'full',
           })
-          try {
-            room.receive({
-              kind: 'catalog',
-              tasks: created.catalog,
-              catalogVersion: 1,
-            })
-            room.add({ ...draft, id: created.task.id })
-          } catch (error) {
-            throw new CreatedTaskError(created.task.id, error)
-          }
-          const worker = room
-            .snapshot()
-            .workers.find((w) => w.id === created.task.id)
+          room.addManaged(draft, {
+            cwd,
+            model: string(v.model, 'model'),
+            effort: string(v.effort, 'effort'),
+            ...(serviceTier && { serviceTier }),
+            permission: string(v.permission, 'permission') as 'auto' | 'full',
+            threadId: null,
+          })
+          const worker = room.snapshot().workers.find((w) => w.id === draft.id)
           if (!worker)
-            throw new CreatedTaskError(
-              created.task.id,
-              'Teammate was saved but could not be read back.',
-            )
-          return { task: created.task, worker }
+            throw new Error('Teammate was saved but could not be read back.')
+          return { worker }
         } finally {
           creatingTask = false
         }
+      })
+      handle('room:approve-hire', async (value) => {
+        if (creatingTask)
+          throw new Error('Wait for the current teammate creation to finish.')
+        creatingTask = true
+        try {
+          const payload = object(value)
+          const id = uuid(payload.id)
+          if (
+            !room.state.hireRequests.some(
+              (request) => request.id === id && request.status === 'pending',
+            )
+          )
+            throw new Error('This hire request is no longer pending.')
+          const draft = decodeHireDraft(payload.draft)
+          const cwd = await validateManagedChoice(draft)
+          const created = room.approveHire(id, draft, cwd)
+          const worker = room
+            .snapshot()
+            .workers.find((item) => item.id === created.id)
+          if (!worker)
+            throw new Error('Teammate was saved but could not be read back.')
+          return { worker }
+        } finally {
+          creatingTask = false
+        }
+      })
+      handle('room:decline-hire', (value) => room.declineHire(uuid(value)))
+      handle('room:retry-managed', (value) =>
+        retryManagedDelivery(room, uuid(value)),
+      )
+      handle('room:resolve-rejected', (value) => {
+        const payload = object(value)
+        room.resolveRejectedConversation(
+          uuid(payload.rootId),
+          uuid(payload.workerId),
+        )
+      })
+      handle('room:managed-approval', (value) => {
+        const payload = object(value)
+        room.answerManagedApproval(
+          uuid(payload.id),
+          string(payload.decision, 'decision') as 'accept' | 'decline',
+        )
       })
       // Share concurrent picker refreshes and publish only a complete catalog.
       let catalogRefresh: Promise<void> | null = null
@@ -228,17 +306,20 @@ else {
           })
         return catalogRefresh
       })
-      handle('room:approval', (value) =>
-        connectionApproval(
+      handle('room:approval', (value) => {
+        if (teammate(value).managed)
+          throw new Error('This teammate connects inside Crews.')
+        return connectionApproval(
           room.state,
           room.beginApproval(teammate(value).id),
           directory,
           runtime,
           executable,
-        ),
-      )
+        )
+      })
       handle('room:copy-open', (value) => {
         const w = teammate(object(value).id)
+        if (w.managed) throw new Error('This teammate works inside Crews.')
         const approval = connectionApproval(
           room.state,
           room.beginApproval(w.id),
@@ -254,9 +335,11 @@ else {
         if (room.state.relay.taskId) clipboard.writeText(approval.text)
         return shell.openExternal(approval.url).then(() => approval)
       })
-      handle('room:open-task', (value) =>
-        shell.openExternal('codex://threads/' + teammate(value).id),
-      )
+      handle('room:open-task', (value) => {
+        const worker = teammate(value)
+        if (worker.managed) throw new Error('This teammate works inside Crews.')
+        return shell.openExternal('codex://threads/' + worker.id)
+      })
       handle('room:open-link', (value) => {
         const url = messageLink(value)
         if (!url) throw new Error('This link cannot be opened from a message.')
@@ -270,15 +353,51 @@ else {
         if (window && !window.isDestroyed())
           window.webContents.send('room:state', snapshot)
       })
+      // The room emits this only after accepting and saving a new agent mention.
+      const notifications = new Map<string, Notification>()
+      room.on('humanMention', (message) => {
+        if (!Notification.isSupported()) return
+        const worker = room.state.workers.find(
+          (item) => item.id === message.authorId,
+        )
+        if (!worker) return
+        const notification = new Notification({
+          id: message.id,
+          groupId: message.rootId,
+          title: `@${worker.handle} mentioned you`,
+          body: message.text.replace(/\s+/g, ' ').slice(0, 180),
+        })
+        notifications.set(message.id, notification)
+        notification.on('show', () => {
+          if (process.env.CREWS_NOTIFICATION_TEST === '1')
+            console.info('Crews mention notification shown', message.id)
+        })
+        notification.on('click', () => {
+          if (!window || window.isDestroyed()) return
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+          window.webContents.send('room:state', room.snapshot())
+          window.webContents.send('room:open-mention', message.id)
+        })
+        notification.on('close', () => notifications.delete(message.id))
+        notification.on('failed', (_event, error) => {
+          console.warn('Crews mention notification failed:', error)
+          notifications.delete(message.id)
+        })
+        notification.show()
+      })
       room.on('deliveryError', (error) => {
         if (window && !window.isDestroyed())
           window.webContents.send('room:error', error)
       })
+      const stopManagedWorkers = startManagedWorkers(room, runtime, executable)
       const scope = Effect.runSync(Scope.make())
       Effect.runSync(
         Scope.addFinalizer(
           scope,
           attempt('mark room closed', () => {
+            stopManagedWorkers()
             atomicWrite(path.join(directory, 'host.json'), {
               running: false,
               pid: process.pid,

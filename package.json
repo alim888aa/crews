@@ -15,6 +15,10 @@
     "test:images": "esbuild tests/electron-images.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-images.mjs && electron build-tests/test-images.mjs",
     "test:channels": "esbuild tests/electron-channels.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-channels.mjs && electron build-tests/test-channels.mjs",
     "test:channel-polish": "esbuild tests/electron-channel-polish.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-channel-polish.mjs && electron build-tests/test-channel-polish.mjs",
+    "test:mentions": "esbuild tests/electron-mentions.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-mentions.mjs && electron build-tests/test-mentions.mjs",
+    "test:archive": "esbuild tests/electron-archive.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-archive.mjs && electron build-tests/test-archive.mjs",
+    "test:hiring": "esbuild tests/electron-hiring.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-hiring.mjs && electron build-tests/test-hiring.mjs",
+    "test:model-switch": "esbuild tests/electron-model-switch.ts --bundle --platform=node --format=esm --external:electron --outfile=build-tests/test-model-switch.mjs && electron build-tests/test-model-switch.mjs",
     "package:dmg": "npm run package:mac && node --import tsx scripts/dmg-mac.ts",
     "package:notarized": "node --import tsx scripts/notarize-mac.ts"
   },

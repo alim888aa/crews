@@ -15,130 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { ChannelDialog } from './ChannelDialog'
 import {
   GENERAL_CHANNEL_ID,
+  isOpenDelivery,
   type Channel,
   type RoomState,
 } from '../shared/contracts'
-
-const cleanName = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-
-function ChannelDialog({
-  room,
-  channel,
-  onClose,
-  onCreated,
-}: {
-  room: RoomState
-  channel?: Channel
-  onClose: () => void
-  onCreated: (channel: Channel) => void
-}) {
-  const [name, setName] = useState(channel?.name ?? '')
-  const [memberIds, setMemberIds] = useState(channel?.memberIds ?? [])
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const normalizedName = cleanName(name)
-  async function save() {
-    if ((!channel && !normalizedName) || saving) return
-    setSaving(true)
-    try {
-      if (channel)
-        await window.crew.setChannelMembers({ id: channel.id, memberIds })
-      else
-        onCreated(
-          await window.crew.createChannel({ name: normalizedName, memberIds }),
-        )
-      onClose()
-    } catch (cause) {
-      const message =
-        cause instanceof Error
-          ? cause.message.replace(
-              /^Error invoking remote method '[^']+': Error: /,
-              '',
-            )
-          : 'Something went wrong. Try again.'
-      setError(message)
-      setSaving(false)
-    }
-  }
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {channel ? `Manage #${channel.name}` : 'New channel'}
-          </DialogTitle>
-          <DialogDescription>
-            {channel
-              ? 'Choose who gets messages sent to everyone in this channel.'
-              : 'Give it a short name and choose its teammates.'}
-          </DialogDescription>
-        </DialogHeader>
-        {!channel && (
-          <label
-            className="grid gap-2 text-sm font-medium"
-            htmlFor="channel-name"
-          >
-            Name
-            <Input
-              id="channel-name"
-              name="channel-name"
-              autoFocus
-              value={name}
-              placeholder="project-name"
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-        )}
-        <fieldset className="grid max-h-64 gap-2 overflow-y-auto">
-          <legend className="mb-2 text-sm font-medium">Teammates</legend>
-          {room.workers.map((worker) => (
-            <label
-              key={worker.id}
-              className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={memberIds.includes(worker.id)}
-                onChange={(event) =>
-                  setMemberIds(
-                    event.target.checked
-                      ? [...memberIds, worker.id]
-                      : memberIds.filter((id) => id !== worker.id),
-                  )
-                }
-              />
-              <span>@{worker.handle}</span>
-            </label>
-          ))}
-        </fieldset>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={saving || (!channel && !normalizedName)}
-            onClick={() => void save()}
-          >
-            {channel ? 'Save members' : 'Create channel'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 export function Channels({
   room,
@@ -158,7 +41,7 @@ export function Channels({
     channelHasDraftWork(id) ||
     room.deliveries.some(
       (d) =>
-        d.status !== 'replied' &&
+        isOpenDelivery(d) &&
         room.messages.some((m) => m.id === d.rootId && m.channelId === id),
     )
   async function confirmDelete() {

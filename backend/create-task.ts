@@ -1,16 +1,74 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { RecentTask } from '../shared/contracts.js'
+import type { RecentTask, TaskPermissionMode } from '../shared/contracts.js'
 import { withAppServer, type AppServerClient } from './app-server.js'
-import { fetchModelCatalog, validateModelChoice } from './model-catalog.js'
+import {
+  fetchModelCatalog,
+  validateModelChoice,
+  validateServiceTierChoice,
+} from './model-catalog.js'
 import { fetchTaskCatalog } from './task-catalog.js'
 
 const TURN_TIMEOUT_MS = 90_000
+
+function permissionSettings(permission: TaskPermissionMode) {
+  if (permission === 'auto')
+    return {
+      approvalPolicy: 'on-request' as const,
+      approvalsReviewer: 'auto_review' as const,
+      profileId: ':workspace' as const,
+      sandboxType: 'workspaceWrite' as const,
+    }
+  if (permission === 'full')
+    return {
+      approvalPolicy: 'never' as const,
+      approvalsReviewer: 'auto_review' as const,
+      profileId: ':danger-full-access' as const,
+      sandboxType: 'dangerFullAccess' as const,
+    }
+  throw new Error('Choose a supported task permission mode.')
+}
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error(`Codex app-server returned invalid ${label}.`)
   return value as Record<string, unknown>
+}
+
+export function verifyPermissions(
+  response: Record<string, unknown>,
+  settings: ReturnType<typeof permissionSettings>,
+): void {
+  const profile = record(
+    response.activePermissionProfile,
+    'task permission profile',
+  )
+  const sandbox = record(response.sandbox, 'task sandbox')
+  if (
+    profile.id !== settings.profileId ||
+    response.approvalPolicy !== settings.approvalPolicy ||
+    response.approvalsReviewer !== settings.approvalsReviewer ||
+    sandbox.type !== settings.sandboxType
+  )
+    throw new Error('Codex did not apply the selected task permissions.')
+}
+
+async function ensureProfileAllowed(
+  client: AppServerClient,
+  cwd: string,
+  profileId: string,
+): Promise<void> {
+  const result = record(
+    await client.request('permissionProfile/list', { cwd }),
+    'permission profile list',
+  )
+  if (!Array.isArray(result.data))
+    throw new Error('Codex did not return available permission profiles.')
+  const profile = result.data
+    .map((value) => record(value, 'permission profile'))
+    .find((value) => value.id === profileId)
+  if (!profile || profile.allowed !== true)
+    throw new Error('Codex does not allow that permission mode in this folder.')
 }
 
 function taskFolder(value: string): string {
@@ -101,13 +159,24 @@ export async function createTaskWithClient(
   cwd: string,
   model: string,
   effort: string,
+  permission: TaskPermissionMode,
   timeoutMs = TURN_TIMEOUT_MS,
 ): Promise<{ task: RecentTask; catalog: RecentTask[] }> {
   validateModelChoice(await fetchModelCatalog(client.request), model, effort)
+  const settings = permissionSettings(permission)
+  await ensureProfileAllowed(client, cwd, settings.profileId)
   let id: string
+  let started: Record<string, unknown>
   try {
-    const started = record(
-      await client.request('thread/start', { cwd, model, ephemeral: false }),
+    started = record(
+      await client.request('thread/start', {
+        cwd,
+        model,
+        ephemeral: false,
+        approvalPolicy: settings.approvalPolicy,
+        approvalsReviewer: settings.approvalsReviewer,
+        permissions: settings.profileId,
+      }),
       'thread start',
     )
     const thread = record(started.thread, 'new thread')
@@ -122,6 +191,7 @@ export async function createTaskWithClient(
     )
   }
   try {
+    verifyPermissions(started, settings)
     // An empty thread is not durable in desktop. This one small turn saves it.
     await waitForTurn(
       client,
@@ -131,6 +201,10 @@ export async function createTaskWithClient(
           threadId: id,
           model,
           effort,
+          // Use the named profile so a reopened task retains this choice.
+          approvalPolicy: settings.approvalPolicy,
+          approvalsReviewer: settings.approvalsReviewer,
+          permissions: settings.profileId,
           input: [
             {
               type: 'text',
@@ -166,12 +240,69 @@ export async function createCodexTask(input: {
   cwd: string
   model: string
   effort: string
+  permission: TaskPermissionMode
 }): Promise<{ task: RecentTask; catalog: RecentTask[] }> {
   const title = input.title.trim()
   if (!title || title.length > 100)
     throw new Error('Use a task name up to 100 characters.')
   const cwd = taskFolder(input.cwd)
-  return withAppServer((client) =>
-    createTaskWithClient(client, title, cwd, input.model, input.effort),
+  const settings = permissionSettings(input.permission)
+  const created = await withAppServer(
+    (client) =>
+      createTaskWithClient(
+        client,
+        title,
+        cwd,
+        input.model,
+        input.effort,
+        input.permission,
+      ),
+    { experimentalApi: true },
   )
+  try {
+    // A fresh app-server process catches permission choices that only lasted
+    // for the first turn instead of surviving a task reopen.
+    await withAppServer(
+      async (client) => {
+        const resumed = record(
+          await client.request('thread/resume', {
+            threadId: created.task.id,
+            excludeTurns: true,
+          }),
+          'resumed task',
+        )
+        verifyPermissions(resumed, settings)
+      },
+      { experimentalApi: true },
+    )
+  } catch (cause) {
+    throw new CreatedTaskError(created.task.id, cause)
+  }
+  return created
+}
+
+/** Validate a Crews-owned teammate without spending a model turn. */
+export async function validateManagedChoice(input: {
+  cwd: string
+  model: string
+  effort: string
+  serviceTier?: 'default' | 'priority'
+  permission: TaskPermissionMode
+}): Promise<string> {
+  const cwd = taskFolder(input.cwd)
+  const settings = permissionSettings(input.permission)
+  await withAppServer(
+    async (client) => {
+      const models = await fetchModelCatalog(client.request)
+      validateModelChoice(models, input.model, input.effort)
+      validateServiceTierChoice(models, input.model, input.serviceTier)
+      await ensureProfileAllowed(client, cwd, settings.profileId)
+    },
+    { experimentalApi: true },
+  )
+  return cwd
+}
+
+export function managedPermissionSettings(permission: TaskPermissionMode) {
+  return permissionSettings(permission)
 }

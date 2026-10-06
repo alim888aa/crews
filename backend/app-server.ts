@@ -11,6 +11,23 @@ export type AppServerRequest = (
   params: unknown,
 ) => Promise<unknown>
 
+export class AppServerRequestError extends Error {
+  readonly code: number | null
+  readonly serverMessage: string
+
+  constructor(value: unknown) {
+    const response =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+    super(`Codex app-server rejected the request: ${JSON.stringify(value)}`)
+    this.name = 'AppServerRequestError'
+    this.code = typeof response.code === 'number' ? response.code : null
+    this.serverMessage =
+      typeof response.message === 'string' ? response.message : ''
+  }
+}
+
 export interface StoppableChild {
   exitCode: number | null
   signalCode: NodeJS.Signals | null
@@ -53,6 +70,24 @@ function findCodex(): string {
     path.join(process.env.HOME ?? '', 'Applications'),
   ]
   const bundled = applications.flatMap((directory) => [
+    path.join(
+      directory,
+      'ChatGPT.app',
+      'Contents',
+      'Resources',
+      'codex-cli',
+      'bin',
+      'codex',
+    ),
+    path.join(
+      directory,
+      'Codex.app',
+      'Contents',
+      'Resources',
+      'codex-cli',
+      'bin',
+      'codex',
+    ),
     path.join(directory, 'ChatGPT.app', 'Contents', 'Resources', 'codex'),
     path.join(directory, 'Codex.app', 'Contents', 'Resources', 'codex'),
   ])
@@ -81,6 +116,10 @@ function findCodex(): string {
 export interface AppServerClient {
   request: AppServerRequest
   onNotification(listener: (message: AppServerMessage) => void): () => void
+  onRequest(
+    listener: (message: AppServerMessage) => Promise<unknown>,
+  ): () => void
+  onClose(listener: (error: Error) => void): () => void
   close(): Promise<void>
 }
 
@@ -89,6 +128,9 @@ function clientFor(child: ChildProcessWithoutNullStreams): AppServerClient {
   let ended: Error | null = null
   let stderr = ''
   const listeners = new Set<(message: AppServerMessage) => void>()
+  const closeListeners = new Set<(error: Error) => void>()
+  let requestHandler: ((message: AppServerMessage) => Promise<unknown>) | null =
+    null
   const pending = new Map<
     number,
     {
@@ -105,6 +147,8 @@ function clientFor(child: ChildProcessWithoutNullStreams): AppServerClient {
       item.reject(error)
     }
     pending.clear()
+    for (const listener of closeListeners) listener(error)
+    closeListeners.clear()
   }
   child.stderr.on('data', (chunk) => {
     stderr = (stderr + String(chunk)).slice(-4_000)
@@ -135,13 +179,30 @@ function clientFor(child: ChildProcessWithoutNullStreams): AppServerClient {
     }
     if (typeof message.method === 'string') {
       if (message.id !== undefined) {
-        // Creation never delegates tool or approval requests to the app.
-        child.stdin.write(
-          JSON.stringify({
-            id: message.id,
-            error: { code: -32601, message: 'Unsupported Crews request.' },
-          }) + '\n',
-        )
+        void Promise.resolve()
+          .then(() => {
+            if (!requestHandler) throw new Error('Unsupported Crews request.')
+            return requestHandler(message)
+          })
+          .then((result) => {
+            if (!ended)
+              child.stdin.write(
+                JSON.stringify({ id: message.id, result }) + '\n',
+              )
+          })
+          .catch((error) => {
+            if (!ended)
+              child.stdin.write(
+                JSON.stringify({
+                  id: message.id,
+                  error: {
+                    code: -32601,
+                    message:
+                      error instanceof Error ? error.message : String(error),
+                  },
+                }) + '\n',
+              )
+          })
       } else for (const listener of listeners) listener(message)
       return
     }
@@ -151,11 +212,7 @@ function clientFor(child: ChildProcessWithoutNullStreams): AppServerClient {
     pending.delete(message.id)
     clearTimeout(item.timer)
     if (message.error !== undefined)
-      item.reject(
-        new Error(
-          `Codex app-server rejected the request: ${JSON.stringify(message.error)}`,
-        ),
-      )
+      item.reject(new AppServerRequestError(message.error))
     else item.resolve(message.result)
   })
   return {
@@ -176,6 +233,17 @@ function clientFor(child: ChildProcessWithoutNullStreams): AppServerClient {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    onRequest(listener) {
+      requestHandler = listener
+      return () => {
+        if (requestHandler === listener) requestHandler = null
+      }
+    },
+    onClose(listener) {
+      if (ended) listener(ended)
+      else closeListeners.add(listener)
+      return () => closeListeners.delete(listener)
+    },
     async close() {
       child.stdin.end()
       await stopAppServer(child)
@@ -185,20 +253,30 @@ function clientFor(child: ChildProcessWithoutNullStreams): AppServerClient {
 
 export async function withAppServer<T>(
   run: (client: AppServerClient) => Promise<T>,
+  options: { experimentalApi?: boolean; signal?: AbortSignal } = {},
 ): Promise<T> {
   const child = spawn(findCodex(), ['app-server', '--stdio'], {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   const client = clientFor(child)
+  const abort = () => {
+    void client.close()
+  }
+  options.signal?.addEventListener('abort', abort, { once: true })
   try {
+    if (options.signal?.aborted) throw new Error('Codex session stopped.')
     await client.request('initialize', {
       clientInfo: { name: 'crews', title: 'Crews', version: '0.3.6' },
+      ...(options.experimentalApi
+        ? { capabilities: { experimentalApi: true } }
+        : {}),
     })
     child.stdin.write(
       JSON.stringify({ method: 'initialized', params: {} }) + '\n',
     )
     return await run(client)
   } finally {
+    options.signal?.removeEventListener('abort', abort)
     await client.close()
   }
 }

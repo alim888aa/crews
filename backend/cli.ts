@@ -2,6 +2,7 @@ import { loadTaskCatalog } from './task-catalog.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import { Effect, Fiber, Cause } from 'effect'
 import type { RoomEvent, FailureKind, SavedRoom } from '../shared/contracts.js'
 import {
@@ -30,7 +31,8 @@ import { runtimeConfig, codexHooksFile } from './paths.js'
 import { installContextHooks } from './hooks.js'
 import { loadIdentity } from './identity.js'
 import { envelope, inFlight, mark } from './relay.js'
-import { decodeEvent } from './schema.js'
+import { decodeEvent, decodeHireDraft } from './schema.js'
+import { loadModelCatalog } from './model-catalog.js'
 
 const runtime = path.dirname(fileURLToPath(import.meta.url))
 const [command, id, token, detail] = process.argv.slice(2)
@@ -108,7 +110,7 @@ function dispatch(config: Config, state: SavedRoom): Command {
     )
   if (command === 'connect') {
     const worker = state.workers.find((w) => w.id === uuid(id))
-    if (!worker || worker.token !== token)
+    if (!worker || worker.archivedAt || worker.token !== token)
       throw invalidRequest('Unknown or expired connection request.')
     return postEvent({
       kind: 'connect',
@@ -116,14 +118,167 @@ function dispatch(config: Config, state: SavedRoom): Command {
       token: uuid(token),
     })
   }
+  if (
+    command === 'hire' ||
+    command === 'hire-options' ||
+    command === 'hire-status'
+  ) {
+    const workerId = uuid(id)
+    const worker = state.workers.find((item) => item.id === workerId)
+    if (
+      !worker ||
+      worker.archivedAt ||
+      worker.connection !== 'connected' ||
+      process.env.CODEX_THREAD_ID !== (worker.managed?.threadId ?? workerId)
+    )
+      throw invalidRequest('Run this from your own connected Codex task.')
+    if (command === 'hire-options')
+      return attemptAsync('load hiring models', loadModelCatalog).pipe(
+        Effect.map((models) => ({ models, currentFolder: process.cwd() })),
+      )
+    if (command === 'hire-status') {
+      const request = state.hireRequests.find(
+        (item) => item.id === uuid(token) && item.requesterId === workerId,
+      )
+      if (!request) throw invalidRequest('Unknown hire request.')
+      return Effect.succeed({
+        requestId: request.id,
+        status: request.status,
+        channelId: request.channelId,
+        ...(request.workerId ? { workerId: request.workerId } : {}),
+      })
+    }
+    const requestId = randomUUID()
+    return jsonInput(process.stdin).pipe(
+      Effect.flatMap((input) =>
+        attempt(
+          'validate hire request',
+          () =>
+            decodeEvent({
+              kind: 'hire',
+              id: requestId,
+              workerId,
+              token: worker.token,
+              rootId: uuid(token),
+              draft: decodeHireDraft(object(input)),
+            }) as RoomEvent,
+        ),
+      ),
+      Effect.flatMap((event) =>
+        postEvent(event).pipe(
+          Effect.map((result) => ({ ...result, requestId })),
+        ),
+      ),
+    )
+  }
+  if (command === 'conversation-start' || command === 'conversation-post') {
+    const workerId = uuid(id)
+    const worker = state.workers.find((item) => item.id === workerId)
+    if (
+      !worker ||
+      worker.archivedAt ||
+      worker.connection !== 'connected' ||
+      process.env.CODEX_THREAD_ID !== (worker.managed?.threadId ?? workerId)
+    )
+      throw invalidRequest('Run this from your own connected Codex task.')
+    const root =
+      command === 'conversation-post'
+        ? state.messages.find(
+            (message) => message.id === uuid(token) && message.rootId === token,
+          )
+        : undefined
+    if (command === 'conversation-post' && !root)
+      throw invalidRequest('Choose an existing conversation.')
+    const channelId = root?.channelId ?? string(token, 'channel ID')
+    const messageId = randomUUID()
+    return jsonInput(process.stdin).pipe(
+      Effect.flatMap((input) =>
+        attempt('validate conversation message', () => {
+          const body = object(input)
+          return decodeEvent({
+            kind: command,
+            id: messageId,
+            workerId,
+            token: worker.token,
+            channelId,
+            ...(root ? { rootId: root.id } : {}),
+            text: body.text,
+            to: body.to ?? [],
+            mode: body.mode ?? 'ordered',
+          }) as RoomEvent
+        }),
+      ),
+      Effect.flatMap((event) =>
+        postEvent(event).pipe(
+          Effect.map((result) => ({
+            ...result,
+            messageId,
+            rootId: root?.id ?? messageId,
+          })),
+        ),
+      ),
+    )
+  }
+  if (command === 'profile' || command === 'profile-set') {
+    const taskId = uuid(id)
+    const worker = state.workers.find((w) => w.id === taskId)
+    if (
+      !worker ||
+      process.env.CODEX_THREAD_ID !== (worker.managed?.threadId ?? taskId)
+    )
+      throw invalidRequest('Run this from your own connected Codex task.')
+    if (!worker || worker.archivedAt || worker.connection !== 'connected')
+      throw invalidRequest('This task is not a connected teammate.')
+    if (command === 'profile')
+      return Effect.succeed({
+        id: worker.id,
+        name: worker.title,
+        handle: worker.handle,
+        description: worker.role ?? '',
+        instructions: worker.identity ?? '',
+      })
+    return jsonInput(process.stdin).pipe(
+      Effect.flatMap((input) =>
+        attempt('validate profile edit', () => {
+          const body = object(input)
+          if (
+            Object.keys(body).some(
+              (key) => key !== 'description' && key !== 'instructions',
+            ) ||
+            (body.description === undefined &&
+              body.instructions === undefined) ||
+            (body.description !== undefined &&
+              typeof body.description !== 'string') ||
+            (body.instructions !== undefined &&
+              typeof body.instructions !== 'string')
+          )
+            throw invalidRequest(
+              'Provide a description or instructions as text.',
+            )
+          return decodeEvent({
+            kind: 'profile',
+            workerId: worker.id,
+            token: worker.token,
+            ...(body.description === undefined
+              ? {}
+              : { role: body.description }),
+            ...(body.instructions === undefined
+              ? {}
+              : { identity: body.instructions }),
+          }) as RoomEvent
+        }),
+      ),
+      Effect.flatMap(postEvent),
+    )
+  }
   if (command === 'take' || command === 'reply' || command === 'progress') {
     const worker = state.workers.find((w) => w.id === uuid(id))
     const delivery = state.deliveries.find(
       (d) => d.id === uuid(token) && d.workerId === worker?.id,
     )
-    if (!worker || !delivery)
+    if (!worker || worker.archivedAt || !delivery)
       throw invalidRequest('This delivery does not belong to your task.')
-    if (delivery.status === 'replied')
+    if (delivery.status === 'replied' || delivery.status === 'resolved')
       return Effect.succeed({ completed: true })
     if (
       delivery.status !== 'pending' ||
@@ -145,7 +300,8 @@ function dispatch(config: Config, state: SavedRoom): Command {
           attempt('refresh delivery conversation', () => {
             const fresh = readState(directory)
             const current = fresh.deliveries.find((d) => d.id === delivery.id)!
-            if (current.status === 'replied') return { completed: true }
+            if (current.status === 'replied' || current.status === 'resolved')
+              return { completed: true }
             const identity = loadIdentity(fresh, directory, worker.id, false)
             recordIdentity = identity?.recordEmitted
             return {
@@ -176,7 +332,9 @@ function dispatch(config: Config, state: SavedRoom): Command {
     const failure = command === 'attention' ? token : undefined
     if (
       failure &&
-      !['approval', 'uncertain', 'task', 'storage'].includes(failure)
+      !['approval', 'relay-approval', 'uncertain', 'task', 'storage'].includes(
+        failure,
+      )
     )
       throw invalidRequest('Choose a valid failure category.')
     return attempt('record delivery receipt', () =>

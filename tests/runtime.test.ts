@@ -58,6 +58,82 @@ test('built helper performs real setup and connection receipt through the app lo
     exec(process.execPath, [cli, 'connect', worker, randomUUID()]),
   )
 })
+test('a connected task can update only its own profile text through the room', async (t) => {
+  const { room, cli, runtime } = fixture(t)
+  assert.match(
+    fs.readFileSync(path.join(runtime, 'WORKER.md'), 'utf8'),
+    /profile-set YOUR_TASK_ID/,
+  )
+  const workerId = randomUUID()
+  room.receive({
+    kind: 'catalog',
+    tasks: [{ id: workerId, title: 'QA Lead', updatedAt: 1, cwd: '/project' }],
+  })
+  room.add({ id: workerId, title: 'QA Lead', handle: 'qa' })
+  room.receive({
+    kind: 'connect',
+    workerId,
+    token: room.state.workers[0]!.token,
+  })
+  assert.throws(() =>
+    room.receive({
+      kind: 'profile',
+      workerId,
+      token: randomUUID(),
+      role: 'Rejected',
+    }),
+  )
+  const env = { ...process.env, CODEX_THREAD_ID: workerId }
+  const current = await exec(process.execPath, [cli, 'profile', workerId], {
+    env,
+  })
+  assert.equal(JSON.parse(current.stdout).name, 'QA Lead')
+  await assert.rejects(
+    exec(process.execPath, [cli, 'profile', workerId], {
+      env: { ...env, CODEX_THREAD_ID: randomUUID() },
+    }),
+    /Run this from your own connected Codex task/,
+  )
+  const save = (body: unknown) =>
+    new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, [cli, 'profile-set', workerId], {
+        env,
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk) => (stdout += String(chunk)))
+      child.stderr.on('data', (chunk) => (stderr += String(chunk)))
+      child.on('error', reject)
+      child.on('close', (code) =>
+        code === 0 ? resolve(stdout) : reject(new Error(stderr)),
+      )
+      child.stdin.end(JSON.stringify(body))
+    })
+  assert.equal(
+    JSON.parse(
+      await save({
+        description: 'Finds release bugs',
+        instructions: 'Check the actual build before reporting.',
+      }),
+    ).accepted,
+    true,
+  )
+  const saved = new Room(room.directory).state.workers[0]!
+  assert.equal(saved.role, 'Finds release bugs')
+  assert.equal(saved.identity, 'Check the actual build before reporting.')
+  assert.equal(saved.title, 'QA Lead')
+  assert.equal(saved.handle, 'qa')
+  await assert.rejects(save({ name: 'Changed' }), /Provide a description/)
+  await assert.rejects(
+    save({ description: 'Changed', name: 'Changed' }),
+    /Provide a description/,
+  )
+  assert.equal(new Room(room.directory).state.workers[0]!.title, 'QA Lead')
+  assert.equal(
+    new Room(room.directory).state.workers[0]!.role,
+    'Finds release bugs',
+  )
+})
 test('built helper publishes one accepted reply, then deduplicates the same delivery', async (t) => {
   const { dir, runtime, room, cli } = fixture(t),
     worker = randomUUID()
@@ -173,6 +249,83 @@ test('dispatcher passes prompts byte-for-byte and never auto-retries an uncertai
   ])
   assert.ok(commands.at(-1)!.includes("'uncertain'"))
   assert.equal(sent.length, 1)
+})
+test('a rejected native dispatch stores Codex’s bounded reason', async () => {
+  const job = {
+    deliveryId: randomUUID(),
+    threadId: randomUUID(),
+    prompt: 'user request',
+  }
+  const commands: string[] = []
+  const tools = {
+    exec_command: async ({ cmd }: { cmd: string }) => {
+      commands.push(cmd)
+      return {
+        exit_code: 0,
+        output: JSON.stringify(
+          cmd.endsWith("'next' 'compact'") ? { jobs: [job] } : { ok: true },
+        ),
+      }
+    },
+    mcp__codex_app__send_message_to_thread: async () => ({
+      isError: true,
+      content: [
+        { type: 'text', text: 'Native send refused: task unavailable' },
+      ],
+    }),
+  }
+  await vm.runInNewContext(
+    'const crewRelayCommand = "cli";\n' +
+      fs.readFileSync('build/relay-turn.js', 'utf8'),
+    { tools, text: () => {} },
+  )
+  assert.ok(
+    commands.some(
+      (cmd) => cmd.includes("'task'") && cmd.includes('Native send refused'),
+    ),
+  )
+  assert.ok(!commands.some((cmd) => cmd.includes("'sent'")))
+})
+test('native approval rejection records a relay-specific hold and reason', async () => {
+  const job = {
+    deliveryId: randomUUID(),
+    threadId: randomUUID(),
+    prompt: 'user request',
+  }
+  const commands: string[] = []
+  const tools = {
+    exec_command: async ({ cmd }: { cmd: string }) => {
+      commands.push(cmd)
+      return {
+        exit_code: 0,
+        output: JSON.stringify(
+          cmd.endsWith("'next' 'compact'") ? { jobs: [job] } : { ok: true },
+        ),
+      }
+    },
+    mcp__codex_app__send_message_to_thread: async () => ({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'This action was rejected due to unacceptable risk. Reason: exact destination was not verified.',
+        },
+      ],
+    }),
+  }
+  await vm.runInNewContext(
+    'const crewRelayCommand = "cli";\n' +
+      fs.readFileSync('build/relay-turn.js', 'utf8'),
+    { tools, text: () => {} },
+  )
+  assert.ok(
+    commands.some(
+      (cmd) =>
+        cmd.includes("'relay-approval'") &&
+        cmd.includes('exact destination was not verified'),
+    ),
+  )
+  assert.ok(!commands.some((cmd) => cmd.includes("'sent'")))
 })
 test('relay catalog refresh uses the complete direct listing helper', async () => {
   const commands: string[] = []

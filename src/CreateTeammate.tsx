@@ -14,6 +14,9 @@ import {
   MAX_ROLE_LENGTH,
   type CodexModelOption,
   type CreatedTeammate,
+  type HireRequest,
+  type ManagedServiceTier,
+  type TaskPermissionMode,
 } from '../shared/contracts'
 
 type Draft = {
@@ -24,6 +27,8 @@ type Draft = {
   cwd: string
   model: string
   effort: string
+  serviceTier?: ManagedServiceTier
+  permission: TaskPermissionMode
 }
 
 function effortLabel(effort: string): string {
@@ -48,23 +53,36 @@ export function CreateTeammate({
   models,
   onCancel,
   onCreated,
+  onBusyChange,
+  request,
+  channelName,
 }: {
   models: CodexModelOption[]
   onCancel: () => void
   onCreated: (created: CreatedTeammate) => void
+  onBusyChange?: (busy: boolean) => void
+  request?: HireRequest
+  channelName?: string
 }) {
   const initial = models.find((item) => item.isDefault) ?? models[0]!
-  const [title, setTitle] = useState('')
-  const [handle, setHandle] = useState('')
-  const [handleEdited, setHandleEdited] = useState(false)
-  const [identity, setIdentity] = useState('')
-  const [role, setRole] = useState('')
-  const [cwd, setCwd] = useState('')
-  const [model, setModel] = useState(initial.model)
-  const [effort, setEffort] = useState(initial.defaultEffort)
+  const [title, setTitle] = useState(request?.draft.title ?? '')
+  const [handle, setHandle] = useState(request?.draft.handle ?? '')
+  const [handleEdited, setHandleEdited] = useState(!!request)
+  const [identity, setIdentity] = useState(request?.draft.identity ?? '')
+  const [role, setRole] = useState(request?.draft.role ?? '')
+  const [cwd, setCwd] = useState(request?.draft.cwd ?? '')
+  const [model, setModel] = useState(request?.draft.model ?? initial.model)
+  const [effort, setEffort] = useState(
+    request?.draft.effort ?? initial.defaultEffort,
+  )
+  const [serviceTier, setServiceTier] = useState<ManagedServiceTier | ''>(
+    request?.draft.serviceTier ?? '',
+  )
+  const [permission, setPermission] = useState<TaskPermissionMode>(
+    request?.draft.permission ?? 'full',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [uncertain, setUncertain] = useState(false)
   const selectedModel = models.find((item) => item.model === model) ?? initial
 
   async function chooseFolder() {
@@ -79,10 +97,23 @@ export function CreateTeammate({
 
   async function create() {
     setBusy(true)
+    onBusyChange?.(true)
     setError('')
-    const draft: Draft = { title, handle, identity, role, cwd, model, effort }
+    const draft: Draft = {
+      title,
+      handle,
+      identity,
+      role,
+      cwd,
+      model,
+      effort,
+      ...(serviceTier && { serviceTier }),
+      permission,
+    }
     try {
-      const created = await window.crew.createTask(draft)
+      const created = request
+        ? await window.crew.approveHire({ id: request.id, draft })
+        : await window.crew.createTask(draft)
       onCreated(created)
     } catch (cause) {
       const message =
@@ -92,14 +123,10 @@ export function CreateTeammate({
               '',
             )
           : String(cause)
-      if (
-        message.startsWith('Codex may have started') ||
-        message.startsWith('Codex task ')
-      )
-        setUncertain(true)
       setError(message)
     } finally {
       setBusy(false)
+      onBusyChange?.(false)
     }
   }
 
@@ -154,13 +181,13 @@ export function CreateTeammate({
               variant="outline"
               aria-label="Browse folders"
               onClick={() => void chooseFolder()}
-              disabled={busy || uncertain}
+              disabled={busy}
             >
               <FolderOpen />
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            The Codex task runs in this folder.
+            Your teammate runs in this folder when you message them.
           </p>
         </Field>
         <Field>
@@ -175,9 +202,14 @@ export function CreateTeammate({
               if (!next) return
               setModel(next.model)
               setEffort(next.defaultEffort)
+              if (serviceTier === 'priority' && !next.fastServiceTier)
+                setServiceTier('default')
             }}
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
           >
+            {!models.some((option) => option.model === model) && (
+              <option value={model}>Unavailable · {model}</option>
+            )}
             {models.map((option) => (
               <option key={option.model} value={option.model}>
                 {option.displayName}
@@ -191,6 +223,26 @@ export function CreateTeammate({
           )}
         </Field>
         <Field>
+          <FieldLabel htmlFor="new-teammate-speed">Speed</FieldLabel>
+          <select
+            id="new-teammate-speed"
+            value={serviceTier}
+            onChange={(event) =>
+              setServiceTier(event.target.value as ManagedServiceTier | '')
+            }
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          >
+            <option value="">Codex default</option>
+            <option value="default">Standard</option>
+            {selectedModel.fastServiceTier && (
+              <option value="priority">Fast · higher usage</option>
+            )}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Fast uses more of your Codex allowance.
+          </p>
+        </Field>
+        <Field>
           <FieldLabel htmlFor="new-teammate-effort">
             Reasoning effort
           </FieldLabel>
@@ -200,6 +252,9 @@ export function CreateTeammate({
             onChange={(event) => setEffort(event.target.value)}
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
           >
+            {!selectedModel.efforts.includes(effort) && (
+              <option value={effort}>Unavailable · {effort}</option>
+            )}
             {selectedModel.efforts.map((option) => (
               <option key={option} value={option}>
                 {effortLabel(option)}
@@ -208,7 +263,26 @@ export function CreateTeammate({
           </select>
         </Field>
         <Field>
-          <FieldLabel htmlFor="new-teammate-role">Project role</FieldLabel>
+          <FieldLabel htmlFor="new-teammate-permission">Permissions</FieldLabel>
+          <select
+            id="new-teammate-permission"
+            value={permission}
+            onChange={(event) =>
+              setPermission(event.target.value as TaskPermissionMode)
+            }
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+          >
+            <option value="full">Full access</option>
+            <option value="auto">Approve for me</option>
+          </select>
+          <p className="text-xs text-muted-foreground">
+            {permission === 'full'
+              ? 'This task can access any file and the internet without asking.'
+              : 'Codex reviews eligible requests automatically; some actions may still ask you.'}
+          </p>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="new-teammate-role">Description</FieldLabel>
           <Input
             id="new-teammate-role"
             value={role}
@@ -218,7 +292,7 @@ export function CreateTeammate({
           />
         </Field>
         <Field>
-          <FieldLabel htmlFor="new-teammate-identity">Identity</FieldLabel>
+          <FieldLabel htmlFor="new-teammate-identity">Instructions</FieldLabel>
           <Textarea
             id="new-teammate-identity"
             value={identity}
@@ -230,8 +304,14 @@ export function CreateTeammate({
         </Field>
       </FieldGroup>
       <p className="mt-4 text-xs text-muted-foreground">
-        Crews will send one short first message so this task appears in Codex.
-        The model and effort you chose will stay with that task.
+        Crews starts their Codex session when you first message them. They’ll
+        work here in Crews using the model and effort you choose.
+        {request && channelName && (
+          <span className="mt-1 block">
+            Approval adds them to #{channelName}
+            {channelName !== 'general' && ' and #general'}.
+          </span>
+        )}
       </p>
       {error && <FieldError className="mt-3">{error}</FieldError>}
       <div className="mt-5 flex justify-between gap-2">
@@ -243,8 +323,14 @@ export function CreateTeammate({
         >
           Back
         </Button>
-        <Button type="submit" disabled={busy || uncertain}>
-          {busy ? 'Creating in Codex…' : 'Create teammate'}
+        <Button type="submit" disabled={busy}>
+          {busy
+            ? request
+              ? 'Approving hire…'
+              : 'Creating teammate…'
+            : request
+              ? 'Approve & hire'
+              : 'Create teammate'}
         </Button>
       </div>
     </form>

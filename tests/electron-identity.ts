@@ -24,6 +24,20 @@ void (async () => {
     workerId: worker,
     token: room.state.workers[0]!.token,
   })
+  room.receive({
+    kind: 'relay',
+    taskId: randomUUID(),
+    automationId: 'fixture',
+    token: room.state.relay.token,
+  })
+  room.send({ text: '@intern hello', parentId: null })
+  room.receive({
+    kind: 'reply',
+    workerId: worker,
+    deliveryId: room.state.deliveries[0]!.id,
+    text: 'Hey!',
+    to: [],
+  })
   const win = new BrowserWindow({
     show: false,
     width: 1280,
@@ -54,16 +68,26 @@ void (async () => {
     throw new Error('Timed out: ' + code)
   }
   const openEditor = async () => {
-    await until(`document.querySelector('[aria-label="Manage Intern"]')`)
-    await js(`document.querySelector('[aria-label="Manage Intern"]').click()`)
+    await until(
+      "Array.from(document.querySelectorAll('button')).some(b=>b.textContent?.trim()==='1 reply')",
+    )
+    await click('1 reply')
+    await until(`document.querySelector('[aria-label="View @intern profile"]')`)
+    await js(
+      `document.querySelector('[aria-label="View @intern profile"]').click()`,
+    )
+    await until("document.body.textContent.includes('No instructions yet.')")
+    await click('Edit profile')
     await until(`document.getElementById('teammate-identity')`)
   }
   const click = (text: string) =>
     js(
-      `Array.from(document.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(text)}).click()`,
+      `(() => { const button = Array.from(document.querySelectorAll('button')).find(b=>b.textContent?.trim()===${JSON.stringify(text)}); if (!button) throw new Error('Missing button: ${text}'); button.click() })()`,
     )
+  let stage = 'load'
   try {
     await win.loadFile(path.resolve('dist/index.html'))
+    stage = 'initial editor'
     await openEditor()
     await js("document.getElementById('teammate-role').focus()")
     await win.webContents.insertText('Reproduces bugs and checks fixes')
@@ -85,8 +109,27 @@ void (async () => {
       'Reproduces bugs and checks fixes',
     )
     room = new Room(directory)
+    stage = 'reloaded profile'
     await win.loadFile(path.resolve('dist/index.html'))
-    await openEditor()
+    await until(
+      `document.querySelector('[aria-label="View profile for Intern"]')`,
+    )
+    await js(
+      `document.querySelector('[aria-label="View profile for Intern"]').click()`,
+    )
+    await until(
+      "document.body.textContent.includes('Reproduces bugs and checks fixes')",
+    )
+    await until(
+      "document.body.textContent.includes('Reproduce bugs before suggesting fixes.')",
+    )
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    fs.writeFileSync(
+      '/tmp/crews-profile-ui.png',
+      (await win.webContents.capturePage()).toPNG(),
+    )
+    await click('Edit profile')
+    stage = 'reloaded editor'
     assert.match(
       await js("document.getElementById('teammate-identity').value"),
       /Reproduce bugs/,
@@ -96,9 +139,7 @@ void (async () => {
       'Reproduces bugs and checks fixes',
     )
     win.show()
-    await js(
-      'Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))',
-    )
+    await new Promise((resolve) => setTimeout(resolve, 250))
     await js(
       'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
     )
@@ -123,7 +164,7 @@ void (async () => {
       'PASS: identity editor, persistence, clearing and hook install without granting trust',
     )
   } catch (error) {
-    console.error(error)
+    console.error(stage, error)
     process.exitCode = 1
   } finally {
     win.destroy()

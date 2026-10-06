@@ -118,14 +118,27 @@ declare const tools: {
         threadId: job.threadId,
         prompt,
       })
-      if (result.isError)
+      if (result.isError) {
+        const reason = result.content
+          ?.filter((item) => item.type === 'text' && item.text)
+          .map((item) => item.text)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        // Relay approval review must stay held, including after teammate reconnects.
+        const failure =
+          reason?.includes(
+            'This action was rejected due to unacceptable risk',
+          ) || reason?.includes('automatic approval review rejected')
+            ? 'relay-approval'
+            : 'task'
         await cli([
           'attention',
           job.deliveryId,
-          'task',
-          'Codex rejected the dispatch. Open the relay task for the exact reason.',
+          failure,
+          `Codex rejected the dispatch${reason ? ': ' + reason.slice(0, 600) : ' without an error reason.'}`,
         ])
-      else await cli(['sent', job.deliveryId])
+      } else await cli(['sent', job.deliveryId])
     } catch (e) {
       await cli([
         'attention',

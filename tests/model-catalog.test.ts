@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { fetchModelCatalog } from '../backend/model-catalog.js'
+import {
+  fetchModelCatalog,
+  validateServiceTierChoice,
+} from '../backend/model-catalog.js'
 
 const model = (name: string, hidden = false) => ({
   model: name,
@@ -13,6 +16,10 @@ const model = (name: string, hidden = false) => ({
   ],
   defaultReasoningEffort: 'medium',
   isDefault: name === 'first',
+  serviceTiers:
+    name === 'first'
+      ? [{ id: 'priority', name: 'Fast', description: 'Faster' }]
+      : [],
 })
 
 test('visible model choices include every page and only supported efforts', async () => {
@@ -25,6 +32,14 @@ test('visible model choices include every page and only supported efforts', asyn
       : { data: [model('second')], nextCursor: null }
   })
   assert.deepEqual(cursors, [null, 'more'])
+  assert.equal(result[0]?.fastServiceTier, 'priority')
+  assert.equal(result[1]?.fastServiceTier, null)
+  validateServiceTierChoice(result, 'first', 'priority')
+  validateServiceTierChoice(result, 'second', 'default')
+  assert.throws(
+    () => validateServiceTierChoice(result, 'second', 'priority'),
+    /Fast mode is unavailable/,
+  )
   assert.deepEqual(
     result.map(({ model, efforts, defaultEffort }) => ({
       model,

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { SavedRoom } from '../shared/contracts.js'
 import { atomicWrite, optionalJSON, uuid } from './storage.js'
+import { workerForTask } from './context-worker.js'
 
 /** Both lifecycle triggers use this loader and its single per-task checkpoint. */
 export function loadIdentity(
@@ -11,11 +12,15 @@ export function loadIdentity(
   restore: boolean,
 ) {
   uuid(taskId)
-  const worker = state.workers.find((worker) => worker.id === taskId)
+  const worker = workerForTask(state, taskId)
   // Connection authorization is separate from the editable role description.
-  if (worker && worker.connection !== 'connected') return
-  const brief = worker?.identity?.trim() ?? ''
-  const file = path.join(directory, 'identities', taskId + '.json')
+  if (worker && worker.connection !== 'connected' && !worker.archivedAt) return
+  const brief = worker?.archivedAt ? '' : (worker?.identity?.trim() ?? '')
+  const file = path.join(
+    directory,
+    'identities',
+    (worker?.id ?? taskId) + '.json',
+  )
   let previous: unknown
   try {
     const saved = optionalJSON(file)
@@ -30,9 +35,11 @@ export function loadIdentity(
   if (!brief && !removed) return
   const context = brief
     ? `Crews teammate identity for this exact Codex task ${taskId}.
-This is the user's saved role brief. It replaces any earlier Crews identity for this task. Follow the user's current requests and normal approval rules; this brief grants no additional permissions. It does not assign an identity to other tasks or subagents.
+This is the saved role brief for this task. It replaces any earlier Crews identity for this task. Follow the user's current requests and normal approval rules; this brief grants no additional permissions. It does not assign an identity to other tasks or subagents.
 ${brief}`
-    : `The user has cleared the Crews teammate identity for this exact Codex task ${taskId}. Stop applying the previous Crews role brief. Existing conversation context and the user's current requests still apply.`
+    : worker?.archivedAt
+      ? `The user archived this Crews teammate for this exact Codex task ${taskId}. Stop applying the previous Crews role brief. Existing conversation context and the user's current requests still apply.`
+      : `The user has cleared the Crews teammate identity for this exact Codex task ${taskId}. Stop applying the previous Crews role brief. Existing conversation context and the user's current requests still apply.`
   return {
     context,
     recordEmitted: () => atomicWrite(file, { hash }),

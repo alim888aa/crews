@@ -1,11 +1,12 @@
 import type { RoomState } from './contracts.js'
+import { isOpenDelivery } from './contracts.js'
 import { addressedMessageForDelivery } from './deliveries.js'
 
 export type ActivityState =
   'working' | 'queued' | 'next' | 'approval' | 'attention' | 'paused' | 'sent'
 export function conversationActivity(room: RoomState, rootId: string) {
   const pending = room.deliveries.filter(
-    (d) => d.rootId === rootId && d.status !== 'replied',
+    (d) => d.rootId === rootId && isOpenDelivery(d),
   )
   return deliveryActivity(room, pending)
 }
@@ -15,8 +16,9 @@ export function messageActivity(room: RoomState, messageId: string) {
     room,
     room.deliveries.filter(
       (d) =>
-        d.status !== 'replied' &&
-        addressedMessageForDelivery(room, d)?.id === messageId,
+        isOpenDelivery(d) &&
+        (addressedMessageForDelivery(room, d)?.id === messageId ||
+          d.coalescedMessageIds?.includes(messageId)),
     ),
   )
 }

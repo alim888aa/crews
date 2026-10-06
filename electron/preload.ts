@@ -3,6 +3,13 @@ import type { CrewAPI, RoomState } from '../shared/contracts.js'
 const api: CrewAPI = {
   snapshot: () => ipcRenderer.invoke('room:snapshot'),
   send: (payload) => ipcRenderer.invoke('room:send', payload),
+  readMentions: (rootId) => ipcRenderer.invoke('room:read-mentions', rootId),
+  onOpenMention: (callback) => {
+    const listener = (_event: IpcRendererEvent, messageId: string) =>
+      callback(messageId)
+    ipcRenderer.on('room:open-mention', listener)
+    return () => ipcRenderer.removeListener('room:open-mention', listener)
+  },
   createChannel: (payload) =>
     ipcRenderer.invoke('room:create-channel', payload),
   setChannelMembers: (payload) =>
@@ -17,9 +24,19 @@ const api: CrewAPI = {
   setup: () => ipcRenderer.invoke('room:setup'),
   add: (value) => ipcRenderer.invoke('room:add', value),
   edit: (value) => ipcRenderer.invoke('room:edit', value),
+  archiveTeammate: (id) => ipcRenderer.invoke('room:archive-teammate', id),
+  restoreTeammate: (id) => ipcRenderer.invoke('room:restore-teammate', id),
   pickTaskFolder: () => ipcRenderer.invoke('room:pick-folder'),
   listModels: () => ipcRenderer.invoke('room:models'),
+  setManagedModel: (value) => ipcRenderer.invoke('room:managed-model', value),
   createTask: (value) => ipcRenderer.invoke('room:create-task', value),
+  approveHire: (value) => ipcRenderer.invoke('room:approve-hire', value),
+  declineHire: (id) => ipcRenderer.invoke('room:decline-hire', id),
+  retryManaged: (id) => ipcRenderer.invoke('room:retry-managed', id),
+  resolveRejectedConversation: (payload) =>
+    ipcRenderer.invoke('room:resolve-rejected', payload),
+  answerManagedApproval: (value) =>
+    ipcRenderer.invoke('room:managed-approval', value),
   approval: (id) => ipcRenderer.invoke('room:approval', id),
   copyOpen: (value) => ipcRenderer.invoke('room:copy-open', value),
   refreshTasks: () => ipcRenderer.invoke('room:refresh'),

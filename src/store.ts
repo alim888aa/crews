@@ -18,7 +18,9 @@ let state: RoomState = {
   revision: -1,
   channels: [{ id: GENERAL_CHANNEL_ID, name: 'general', memberIds: [] }],
   messages: [],
+  mentions: [],
   workers: [],
+  hireRequests: [],
   deliveries: [],
   paused: false,
   replyLimit: DEFAULT_REPLY_LIMIT,
@@ -42,6 +44,44 @@ export const subscribe = (listener: () => void) => {
   }
 }
 export const getSnapshot = () => state
+type MentionNavigation = {
+  messageId: string
+  rootId: string
+  channelId: string
+}
+let mentionNavigation: MentionNavigation | null = null
+const mentionNavigationListeners = new Set<() => void>()
+export const getMentionNavigation = () => mentionNavigation
+export const subscribeMentionNavigation = (listener: () => void) => {
+  mentionNavigationListeners.add(listener)
+  return () => {
+    mentionNavigationListeners.delete(listener)
+  }
+}
+export function clearMentionNavigation() {
+  if (!mentionNavigation) return
+  mentionNavigation = null
+  mentionNavigationListeners.forEach((listener) => listener())
+}
+export function openMention(messageId: string) {
+  const message = state.messages.find((item) => item.id === messageId)
+  if (
+    !message ||
+    !state.mentions.some((mention) => mention.messageId === messageId)
+  )
+    return
+  mentionNavigation = {
+    messageId,
+    rootId: message.rootId,
+    channelId: message.channelId,
+  }
+  mentionNavigationListeners.forEach((listener) => listener())
+  void window.crew.readMentions(message.rootId).catch((error) => {
+    roomError =
+      error instanceof Error ? error.message : 'Could not mark mention read.'
+    errorListeners.forEach((listener) => listener())
+  })
+}
 function update(next: RoomState) {
   if (next.revision >= state.revision) {
     state = next
@@ -64,6 +104,7 @@ export function clearRoomError() {
 }
 export async function connect() {
   window.crew.onState(update)
+  window.crew.onOpenMention(openMention)
   window.crew.onError((error) => {
     if (error !== roomError) {
       roomError = error

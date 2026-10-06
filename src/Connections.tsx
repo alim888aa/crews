@@ -188,7 +188,7 @@ export function Teammates({
           {(creating || approval || !selected) && (
             <DialogDescription>
               {creating
-                ? 'Create a new Codex task in a folder you choose.'
+                ? 'Create a teammate who works in Crews using Codex.'
                 : approval
                   ? 'Approve this connection in the original Codex task. We’ll confirm it here when the task replies.'
                   : 'Choose from your local Codex desktop tasks.'}
@@ -199,19 +199,9 @@ export function Teammates({
           <CreateTeammate
             models={modelOptions}
             onCancel={() => setCreating(false)}
-            onCreated={({ task, worker }) => {
+            onCreated={() => {
               setCreating(false)
-              setSelected(task)
-              setCreatedWorker(worker)
-              setTitle(worker.title)
-              setHandle(worker.handle)
-              setRole(worker.role ?? '')
-              setIdentity(worker.identity ?? '')
-              setError('')
-              setCopied(false)
-              void prepareAndOpen(task.id).catch((cause) =>
-                setError(errorText(cause)),
-              )
+              onClose()
             }}
           />
         ) : approval ? (
@@ -300,7 +290,7 @@ export function Teammates({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="teammate-role">Project role</FieldLabel>
+                <FieldLabel htmlFor="teammate-role">Description</FieldLabel>
                 <Input
                   id="teammate-role"
                   value={role}
@@ -313,7 +303,9 @@ export function Teammates({
                 </p>
               </Field>
               <Field>
-                <FieldLabel htmlFor="teammate-identity">Identity</FieldLabel>
+                <FieldLabel htmlFor="teammate-identity">
+                  Instructions
+                </FieldLabel>
                 <Textarea
                   id="teammate-identity"
                   value={identity}
@@ -393,24 +385,26 @@ export function Teammates({
               <Plus data-icon="inline-start" />
               {modelsLoading ? 'Loading models…' : 'Create teammate'}
             </Button>
-            {state.workers.length > 0 && (
+            {state.workers.some((worker) => !worker.archivedAt) && (
               <div className="flex flex-col gap-1">
                 <p className="mb-1 text-xs text-muted-foreground">
                   IN YOUR ROOM
                 </p>
-                {state.workers.map((w) => (
-                  <Button
-                    key={w.id}
-                    variant="ghost"
-                    className="h-auto justify-between py-3"
-                    onClick={() => choose(w)}
-                  >
-                    <span>@{w.handle}</span>
-                    <span className="text-xs text-muted-foreground">
-                      <ConnectionLabel worker={w} />
-                    </span>
-                  </Button>
-                ))}
+                {state.workers
+                  .filter((w) => !w.archivedAt)
+                  .map((w) => (
+                    <Button
+                      key={w.id}
+                      variant="ghost"
+                      className="h-auto justify-between py-3"
+                      onClick={() => choose(w)}
+                    >
+                      <span>@{w.handle}</span>
+                      <span className="text-xs text-muted-foreground">
+                        <ConnectionLabel worker={w} />
+                      </span>
+                    </Button>
+                  ))}
               </div>
             )}
             <Field>

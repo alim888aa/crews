@@ -116,7 +116,12 @@ test('a stopped task releases its slot without replaying or completing the faile
   assert.deepEqual(claimBatch(dir, '/runtime', ['node']), [])
 })
 test('uncertain, storage and approval holds keep newer requests queued', (t) => {
-  for (const failure of ['uncertain', 'storage', 'approval'] as const) {
+  for (const failure of [
+    'uncertain',
+    'storage',
+    'approval',
+    'relay-approval',
+  ] as const) {
     const { dir, room } = fixture(t)
     connect(room)
     room.send({ text: '@one original', parentId: null })
@@ -128,6 +133,116 @@ test('uncertain, storage and approval holds keep newer requests queued', (t) => 
     assert.equal(inFlight(dir)[0]?.deliveryId, job.deliveryId)
   }
 })
+test('marking a relay-rejected conversation handled closes its unsent replies', (t) => {
+  const { dir, room } = fixture(t)
+  connect(room)
+  const firstMessage = room.send({ text: '@one original', parentId: null })
+  const [first] = claimBatch(dir, '/runtime', ['node'])
+  assert.ok(first)
+  room.send({ text: '@one follow-up', parentId: firstMessage.id })
+  const messagesBefore = room.state.messages.length
+  mark(dir, first.deliveryId, 'attention', 'Codex rejected the dispatch', 'relay-approval')
+  const pending = room.state.deliveries.filter(
+    (d) => d.workerId === first.threadId && d.rootId === firstMessage.id && d.status === 'pending',
+  )
+  assert.equal(pending.length, 2)
+
+  room.resolveRejectedConversation(firstMessage.id, first.threadId)
+  assert.equal(room.state.messages.length, messagesBefore)
+  assert.ok(pending.every((d) => room.state.deliveries.find((saved) => saved.id === d.id)?.status === 'resolved'))
+  assert.equal(room.snapshot().workers.find((w) => w.id === first.threadId)?.pending, 0)
+  assert.ok(room.snapshot().deliveries.every((d) => d.error === undefined))
+  assert.deepEqual(inFlight(dir), [])
+  assert.deepEqual(claimBatch(dir, '/runtime', ['node']), [])
+  assert.equal(receipt(dir, first.deliveryId)?.failure, 'relay-approval')
+  assert.ok(fs.existsSync(path.join(dir, 'claims', first.deliveryId)))
+
+  // A late helper reply cannot reopen a delivery the user closed.
+  room.receive({ kind: 'reply', workerId: first.threadId, deliveryId: first.deliveryId, text: 'late', to: [] })
+  assert.equal(room.state.messages.length, messagesBefore)
+  const restarted = new Room(dir)
+  restarted.send({ text: '@one fresh request', parentId: null })
+  const [next] = claimBatch(dir, '/runtime', ['node'])
+  assert.ok(next)
+  assert.notEqual(next.deliveryId, first.deliveryId)
+})
+
+test('mark handled refuses any delivery that may have started', (t) => {
+  const { dir, room } = fixture(t)
+  connect(room)
+  const firstMessage = room.send({ text: '@one original', parentId: null })
+  const [first] = claimBatch(dir, '/runtime', ['node'])
+  assert.ok(first)
+  mark(dir, first.deliveryId, 'attention', 'Codex rejected the dispatch', 'relay-approval')
+  room.receive({ kind: 'started', workerId: first.threadId, deliveryId: first.deliveryId })
+  assert.throws(() => room.resolveRejectedConversation(firstMessage.id, first.threadId))
+  assert.equal(room.state.deliveries.find((d) => d.id === first.deliveryId)?.status, 'pending')
+})
+test('mark handled leaves later ordered speakers waiting for an actual reply', (t) => {
+  const { dir, room } = fixture(t)
+  connect(room)
+  const message = room.send({ text: '@one @two original', parentId: null })
+  const [first] = claimBatch(dir, '/runtime', ['node'])
+  assert.ok(first)
+  mark(dir, first.deliveryId, 'attention', 'Codex rejected the dispatch', 'relay-approval')
+  assert.throws(() => room.resolveRejectedConversation(message.id, first.threadId))
+  assert.equal(room.state.deliveries.find((d) => d.id === first.deliveryId)?.status, 'pending')
+  assert.equal(room.state.deliveries.find((d) => d.workerId !== first.threadId)?.status, 'waiting')
+})
+
+test('mark handled accepts the legacy relay rejection receipt', (t) => {
+  const { dir, room } = fixture(t)
+  connect(room)
+  const message = room.send({ text: '@one original', parentId: null })
+  const [first] = claimBatch(dir, '/runtime', ['node'])
+  assert.ok(first)
+  mark(dir, first.deliveryId, 'attention', 'Codex rejected the dispatch: old receipt', 'approval')
+  room.resolveRejectedConversation(message.id, first.threadId)
+  assert.equal(room.state.deliveries.find((d) => d.id === first.deliveryId)?.status, 'resolved')
+})
+test('mark handled refuses a claimed sibling with a missing receipt', (t) => {
+  const { dir, room } = fixture(t)
+  connect(room)
+  const message = room.send({ text: '@one original', parentId: null })
+  const [first] = claimBatch(dir, '/runtime', ['node'])
+  assert.ok(first)
+  room.send({ text: '@one follow-up', parentId: message.id })
+  mark(dir, first.deliveryId, 'attention', 'Codex rejected the dispatch', 'relay-approval')
+  const sibling = room.state.deliveries.find((d) => d.workerId === first.threadId && d.id !== first.deliveryId)!
+  fs.writeFileSync(path.join(dir, 'claims', sibling.id), '{}')
+  assert.throws(() => room.resolveRejectedConversation(message.id, first.threadId))
+  assert.ok(room.state.deliveries.every((d) => d.status === 'pending'))
+})
+for (const failure of ['relay-approval', 'approval'] as const) {
+  test(`reconnecting a teammate does not clear a relay rejection saved as ${failure}`, (t) => {
+    const { dir, room } = fixture(t)
+    connect(room)
+    room.send({ text: '@one original', parentId: null })
+    const [job] = claimBatch(dir, '/runtime', ['node'])
+    assert.ok(job)
+    room.send({ text: '@one newer', parentId: null })
+    mark(
+      dir,
+      job.deliveryId,
+      'attention',
+      'Codex rejected the dispatch: exact destination not verified',
+      failure,
+    )
+    const reopened = new Room(dir)
+    assert.equal(
+      reopened.snapshot().workers.find((w) => w.id === job.threadId)
+        ?.connection,
+      'connected',
+    )
+    reopened.beginApproval(job.threadId)
+    const token = reopened.state.workers.find(
+      (w) => w.id === job.threadId,
+    )!.token
+    reopened.receive({ kind: 'connect', workerId: job.threadId, token })
+    assert.equal(receipt(dir, job.deliveryId)?.failure, failure)
+    assert.deepEqual(claimBatch(dir, '/runtime', ['node']), [])
+  })
+}
 test('failed transaction does not corrupt room state', (t) => {
   const { room } = fixture(t)
   const before = structuredClone(room.state)

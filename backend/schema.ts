@@ -49,6 +49,7 @@ const Message = Schema.Struct({
   ),
   createdAt: Schema.Number,
   recipientIds: Schema.Array(ID),
+  invitedGuestIds: Schema.optional(Schema.Array(ID)),
   roundId: ID,
   channelId: Schema.optionalWith(ChannelId, {
     default: () => GENERAL_CHANNEL_ID,
@@ -57,18 +58,38 @@ const Message = Schema.Struct({
   deliveryId: Schema.optional(ID),
   discussionPaused: Schema.optional(Schema.Boolean),
 })
+const HumanMention = Schema.Struct({
+  messageId: ID,
+  readAt: Schema.optional(Schema.Number),
+})
 const Delivery = Schema.Struct({
   id: ID,
   workerId: ID,
   messageId: ID,
   rootId: ID,
   roundId: ID,
-  status: Schema.Literal('pending', 'waiting', 'replied'),
+  status: Schema.Literal('pending', 'waiting', 'replied', 'resolved'),
   createdAt: Schema.Number,
   startedAt: Schema.optional(Schema.Number),
   replyId: Schema.optional(ID),
+  resolvedAt: Schema.optional(Schema.Number),
+  coalescedInto: Schema.optional(ID),
+  coalescedMessageIds: Schema.optional(Schema.Array(ID)),
+  previouslyClaimed: Schema.optional(Schema.Boolean),
 })
 const Worker = Schema.Struct({
+  archivedAt: Schema.optional(Schema.Number),
+  managed: Schema.optional(
+    Schema.Struct({
+      cwd: Schema.String,
+      model: Schema.String,
+      effort: Schema.String,
+      serviceTier: Schema.optional(Schema.Literal('default', 'priority')),
+      permission: Schema.Literal('auto', 'full'),
+      threadId: Schema.NullOr(ID),
+      turnAttempted: Schema.optional(Schema.Boolean),
+    }),
+  ),
   identity: Schema.optional(
     Schema.String.pipe(Schema.maxLength(MAX_IDENTITY_LENGTH)),
   ),
@@ -80,6 +101,31 @@ const Worker = Schema.Struct({
   connection: Schema.Literal('new', 'awaiting', 'connected', 'approval'),
   token: ID,
   connectedAt: Schema.NullOr(Schema.Number),
+})
+const HireDraft = Schema.Struct({
+  title: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
+  handle: Schema.String.pipe(Schema.maxLength(32)),
+  role: Schema.String.pipe(Schema.maxLength(MAX_ROLE_LENGTH)),
+  identity: Schema.String.pipe(Schema.maxLength(MAX_IDENTITY_LENGTH)),
+  cwd: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096)),
+  model: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
+  effort: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(30)),
+  serviceTier: Schema.optional(Schema.Literal('default', 'priority')),
+  permission: Schema.Literal('auto', 'full'),
+})
+export const decodeHireDraft = Schema.decodeUnknownSync(HireDraft)
+const HireRequest = Schema.Struct({
+  id: ID,
+  requesterId: ID,
+  channelId: Schema.optionalWith(ChannelId, {
+    default: () => GENERAL_CHANNEL_ID,
+  }),
+  rootId: Schema.optional(ID),
+  draft: HireDraft,
+  status: Schema.Literal('pending', 'approved', 'declined'),
+  createdAt: Schema.Number,
+  resolvedAt: Schema.optional(Schema.Number),
+  workerId: Schema.optional(ID),
 })
 const Task = Schema.Struct({
   id: ID,
@@ -100,7 +146,13 @@ export const StateSchema = Schema.Struct({
     ],
   }),
   workers: Schema.Array(Worker),
+  hireRequests: Schema.optionalWith(Schema.Array(HireRequest), {
+    default: () => [],
+  }),
   messages: Schema.Array(Message),
+  mentions: Schema.optionalWith(Schema.Array(HumanMention), {
+    default: () => [],
+  }),
   deliveries: Schema.Array(Delivery),
   relay: Schema.Struct({
     taskId: Schema.NullOr(ID),
@@ -113,6 +165,46 @@ export const StateSchema = Schema.Struct({
   refreshRequestedAt: Schema.NullOr(Schema.Number),
 })
 export const EventSchema = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal('hire'),
+    id: ID,
+    workerId: ID,
+    token: ID,
+    rootId: ID,
+    draft: HireDraft,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('conversation-start'),
+    id: ID,
+    workerId: ID,
+    token: ID,
+    channelId: ChannelId,
+    text: Text,
+    to: Schema.Array(Schema.String).pipe(Schema.maxItems(100)),
+    mode: Mode,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('conversation-post'),
+    id: ID,
+    workerId: ID,
+    token: ID,
+    channelId: ChannelId,
+    rootId: ID,
+    text: Text,
+    to: Schema.Array(Schema.String).pipe(Schema.maxItems(100)),
+    mode: Mode,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('profile'),
+    workerId: ID,
+    token: ID,
+    role: Schema.optional(
+      Schema.String.pipe(Schema.maxLength(MAX_ROLE_LENGTH)),
+    ),
+    identity: Schema.optional(
+      Schema.String.pipe(Schema.maxLength(MAX_IDENTITY_LENGTH)),
+    ),
+  }),
   Schema.Struct({
     kind: Schema.Literal('started'),
     workerId: ID,

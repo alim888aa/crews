@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowUpRight, Link } from 'lucide-react'
+import { ArrowUpRight, Link, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -15,7 +15,13 @@ const errorText = (e: unknown) =>
     ? e.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
     : String(e)
 
-export function Setup({ state }: { state: RoomState }) {
+export function Setup({
+  state,
+  onAddTeammate,
+}: {
+  state: RoomState
+  onAddTeammate: () => void
+}) {
   const [opening, setOpening] = useState(false),
     [opened, setOpened] = useState(false),
     [error, setError] = useState('')
@@ -43,61 +49,33 @@ export function Setup({ state }: { state: RoomState }) {
         </EmptyTitle>
       </EmptyHeader>
       <EmptyContent className="max-w-xl items-start gap-8">
-        <ol className="flex flex-col gap-4">
-          <li className="flex items-center gap-3">
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              1
-            </span>
-            <div>
-              <p className="text-base font-medium">Connect Codex</p>
-              <p className="text-sm text-muted-foreground">
-                Select Luna · Medium in Codex, then send the setup message.
-              </p>
-            </div>
-          </li>
-          <li className="flex items-center gap-3">
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              2
-            </span>
-            <div>
-              <p className="text-base font-medium">Add your agents</p>
-              <p className="text-sm text-muted-foreground">
-                Create a new task or choose an existing one, then connect it.
-              </p>
-            </div>
-          </li>
-          <li className="flex items-center gap-3">
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              3
-            </span>
-            <div>
-              <p className="text-base font-medium">Start chatting</p>
-              <p className="text-sm text-muted-foreground">
-                @mention an agent, or use @all for everyone.
-              </p>
-            </div>
-          </li>
-        </ol>
-        <Button onClick={() => void connect()} disabled={opening}>
-          <Link data-icon="inline-start" />
-          {opening
-            ? 'Opening Codex…'
-            : registered
-              ? 'Resume setup'
-              : opened
-                ? 'Reopen setup'
-                : 'Connect to Codex'}
-          <ArrowUpRight data-icon="inline-end" />
-        </Button>
+        <div className="space-y-3 rounded-lg border p-5">
+          <p className="font-medium">Create a teammate in Crews</p>
+          <p className="text-sm text-muted-foreground">
+            Pick their folder, model and permissions. Their Codex conversation
+            starts when you first message them here.
+          </p>
+          <Button onClick={onAddTeammate}>
+            <Plus data-icon="inline-start" /> Add teammate
+          </Button>
+        </div>
+        <div className="space-y-3 rounded-lg border p-5">
+          <p className="font-medium">Bring in existing Desktop tasks</p>
+          <p className="text-sm text-muted-foreground">
+            Connect the relay once, then choose the Codex tasks you already use.
+          </p>
+          <Button variant="outline" onClick={() => void connect()} disabled={opening}>
+            <Link data-icon="inline-start" />
+            {opening
+              ? 'Opening Codex…'
+              : registered
+                ? 'Resume setup'
+                : opened
+                  ? 'Reopen setup'
+                  : 'Connect Desktop tasks'}
+            <ArrowUpRight data-icon="inline-end" />
+          </Button>
+        </div>
         {(opened || registered) && (
           <p role="status" className="text-muted-foreground">
             {registered

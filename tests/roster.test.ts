@@ -199,7 +199,7 @@ test('reapproval withdraws a previously emitted roster until reconnection', asyn
   assert.doesNotMatch(restored, /"name":"alpha"/)
 })
 
-test('a conversation guest cannot recruit another project member', (t) => {
+test('a user-invited conversation guest can address channel members', (t) => {
   const { dir, room } = fixture(t)
   const lead = add(room, 'lead', 'Engineering lead')
   const qa = add(room, 'qa', 'QA lead')
@@ -215,14 +215,20 @@ test('a conversation guest cannot recruit another project member', (t) => {
   )!
   const context = envelope(room.state, delivery, dir)
   assert.equal(context.projectMembership, 'guest')
-  assert.equal('projectMembers' in context, false)
-  assert.throws(() =>
-    room.receive({
-      kind: 'reply',
-      workerId: guest,
-      deliveryId: delivery.id,
-      text: '@qa join',
-      to: ['qa'],
-    }),
+  assert.deepEqual(
+    context.projectMembers?.map((member) => member.handle),
+    ['lead', 'qa'],
+  )
+  room.receive({
+    kind: 'reply',
+    workerId: guest,
+    deliveryId: delivery.id,
+    text: '@qa join',
+    to: ['qa'],
+  })
+  assert.ok(
+    room.state.deliveries.some(
+      (item) => item.workerId === qa && item.rootId === delivery.rootId,
+    ),
   )
 })

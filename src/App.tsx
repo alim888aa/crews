@@ -76,6 +76,10 @@ import {
 import {
   getSnapshot,
   subscribe,
+  getMentionNavigation,
+  subscribeMentionNavigation,
+  clearMentionNavigation,
+  openMention,
   getRoomError,
   subscribeErrors,
   clearRoomError,
@@ -101,8 +105,14 @@ import {
   MAX_IMAGE_BYTES,
   type ImageAttachment,
 } from '../shared/contracts'
-import { Setup, Teammates, ConnectionLabel } from '@/Connections'
+import { Setup, Teammates } from '@/Connections'
 import { Channels } from '@/Channels'
+import { SidebarTeammates } from '@/SidebarTeammates'
+import { TeammateProfile } from '@/TeammateProfile'
+import { ManagedApprovalDialog } from '@/ManagedApprovalDialog'
+import { HireReview } from '@/HireReview'
+import { DeliveryError } from '@/DeliveryError'
+import { Mentions } from '@/Mentions'
 import {
   channelMemberIds,
   conversationParticipantIds,
@@ -179,12 +189,14 @@ function MessageRow({
   state,
   children,
   onReply,
+  onProfile,
   showQuote = false,
 }: {
   message: ChatMessage
   state: RoomState
   children?: ReactNode
   onReply?: () => void
+  onProfile?: (id: string) => void
   showQuote?: boolean
 }) {
   const worker = state.workers.find((w) => w.id === message.authorId)
@@ -194,7 +206,18 @@ function MessageRow({
       : null
   return (
     <Message>
-      <PersonAvatar worker={worker} user={message.authorId === 'user'} />
+      {worker && onProfile ? (
+        <button
+          type="button"
+          aria-label={`View @${worker.handle} profile`}
+          className="h-fit rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          onClick={() => onProfile(worker.id)}
+        >
+          <PersonAvatar worker={worker} />
+        </button>
+      ) : (
+        <PersonAvatar worker={worker} user={message.authorId === 'user'} />
+      )}
       <MessageContent className="gap-1.5">
         <MessageHeader className="gap-2">
           <span className="font-semibold text-foreground">
@@ -213,7 +236,7 @@ function MessageRow({
                 {message.mode === 'simultaneous' ? 'All at once' : 'In order'}
               </Badge>
             )}
-          {worker && (
+          {worker && !worker.managed && (
             <Hint label="Open original Codex task">
               <Button
                 variant="ghost"
@@ -297,7 +320,7 @@ function Composer({
   const error = operations[draftId]?.error ?? ''
   const setError = (value: string) => setDraftError(draftId, value)
   const input = useRef<HTMLTextAreaElement>(null)
-  const allowed = room.workers
+  const allowed = room.workers.filter((worker) => !worker.archivedAt)
   const allRecipientIds = root
     ? conversationParticipantIds(room, root.id)
     : channelMemberIds(room, channelId)
@@ -592,15 +615,32 @@ function Composer({
 
 export default function App() {
   const state = useSyncExternalStore(subscribe, getSnapshot)
+  const pendingHires = state.hireRequests.filter(
+    (request) => request.status === 'pending',
+  )
+  const nextHire = pendingHires[0]
+  const mentionNavigation = useSyncExternalStore(
+    subscribeMentionNavigation,
+    getMentionNavigation,
+  )
   const roomError = useSyncExternalStore(subscribeErrors, getRoomError)
-  const [channelId, setChannelId] = useState(GENERAL_CHANNEL_ID)
-  const channelIdRef = useRef(channelId)
-  const [selected, setSelectedId] = useState<string | null>(null)
-  const [conversationOpen, setConversationOpen] = useState(false)
+  const [localChannelId, setChannelId] = useState(GENERAL_CHANNEL_ID)
+  const channelIdRef = useRef(localChannelId)
+  const [localSelected, setSelectedId] = useState<string | null>(null)
+  const [localConversationOpen, setConversationOpen] = useState(false)
+  const channelId = mentionNavigation?.channelId ?? localChannelId
+  const selected = mentionNavigation?.rootId ?? localSelected
+  const conversationOpen = Boolean(mentionNavigation) || localConversationOpen
   const [panelMotion, setPanelMotion] = useState(false)
   const conversationPanel = useRef<PanelImperativeHandle | null>(null)
   const conversationWidth = useRef('42%')
   function setSelected(id: string | null) {
+    const activeMention = getMentionNavigation()
+    if (activeMention) {
+      channelIdRef.current = activeMention.channelId
+      setChannelId(activeMention.channelId)
+    }
+    clearMentionNavigation()
     setPanelMotion(true)
     if (id) {
       setSelectedId(id)
@@ -615,6 +655,8 @@ export default function App() {
   const [relayDetails, setRelayDetails] = useState(false)
   const [error, setError] = useState('')
   const [manage, setManage] = useState<{ id?: string } | null>(null)
+  const [profileId, setProfileId] = useState<string | null>(null)
+  const profileWorker = state.workers.find((worker) => worker.id === profileId)
   const root = state.messages.find(
     (m) => m.id === selected && m.channelId === channelId,
   )
@@ -644,7 +686,8 @@ export default function App() {
       ).length
     : 0
   function selectChannel(id: string) {
-    if (id === channelId) return
+    if (id === channelId && !mentionNavigation) return
+    clearMentionNavigation()
     channelIdRef.current = id
     setSelectedId(null)
     setConversationOpen(false)
@@ -662,9 +705,12 @@ export default function App() {
             <SidebarTrigger />
             <span className="text-sm font-medium">Crews</span>
           </div>
-          <span className="text-xs text-muted-foreground">
-            Slack for your Codex threads.
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              Slack for your Codex threads.
+            </span>
+            <Mentions room={state} onOpen={openMention} />
+          </div>
         </header>
         <div className="workspace">
           <Sidebar
@@ -682,63 +728,24 @@ export default function App() {
                 selectedId={channelId}
                 onSelect={selectChannel}
               />
-              <div className="mt-8 flex items-center justify-between px-4 text-xs text-muted-foreground">
-                <span>TEAMMATES</span>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Add teammate"
-                  onClick={() => {
-                    setManage({})
-                    void window.crew
-                      .refreshTasks()
-                      .catch((e) => setError(errorText(e)))
-                  }}
-                >
-                  <Plus />
-                </Button>
-              </div>
-              <div className="mt-3 flex flex-col gap-1 px-2">
-                {state.workers.map((w) => (
-                  <Button
-                    key={w.id}
-                    variant="ghost"
-                    className="h-auto w-full items-start justify-start gap-2 px-2 py-3 text-left whitespace-normal"
-                    aria-label={'Manage ' + w.title}
-                    aria-haspopup="dialog"
-                    onClick={() => setManage({ id: w.id })}
-                  >
-                    <PersonAvatar worker={w} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium">
-                        @{w.handle}
-                      </span>
-                      <span
-                        className="block truncate text-xs font-normal text-muted-foreground"
-                        title={w.title}
-                      >
-                        {w.title}
-                      </span>
-                      <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                        <span
-                          className={cn(
-                            'presence-dot',
-                            w.connection === 'connected' && 'is-listening',
-                          )}
-                        />
-                        <ConnectionLabel worker={w} />
-                        {w.pending > 0 && ' · ' + w.pending + ' pending'}
-                      </span>
-                    </span>
-                  </Button>
-                ))}
-              </div>
+              <SidebarTeammates
+                room={state}
+                channelId={channelId}
+                onProfile={setProfileId}
+                onError={setError}
+                onAdd={() => {
+                  setManage({})
+                  void window.crew
+                    .refreshTasks()
+                    .catch((e) => setError(errorText(e)))
+                }}
+              />
             </SidebarContent>
             <SidebarFooter className="gap-3 p-4">
               <ReplyLimit key={state.replyLimit} value={state.replyLimit} />
               <Separator />
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm">Luna relay</span>
+                <span className="text-sm">Desktop relay</span>
                 <Badge variant={relayOnline ? 'secondary' : 'outline'}>
                   {!state.relay.taskId
                     ? 'Not connected'
@@ -753,7 +760,7 @@ export default function App() {
               </div>
               <p className="text-xs text-muted-foreground" role="status">
                 {!state.relay.taskId
-                  ? 'Connect Codex to bring your tasks into the room.'
+                  ? 'Connect the relay to bring existing Desktop tasks into the room. Crews-owned teammates work without it.'
                   : state.relay.error
                     ? state.relay.error
                     : relayOnline
@@ -790,6 +797,7 @@ export default function App() {
             </SidebarFooter>
           </Sidebar>
           <ResizablePanelGroup
+            key={mentionNavigation?.messageId ?? 'room'}
             orientation="horizontal"
             className="chat-panels min-w-0 flex-1"
             data-motion={panelMotion}
@@ -811,7 +819,11 @@ export default function App() {
               if (width > 0) conversationWidth.current = width + '%'
             }}
           >
-            <ResizablePanel id="channel" defaultSize="100%" minSize="240px">
+            <ResizablePanel
+              id="channel"
+              defaultSize={conversationOpen ? '58%' : '100%'}
+              minSize="240px"
+            >
               <main className="channel h-full">
                 <div className="channel-header">
                   <div className="flex items-center gap-2">
@@ -908,10 +920,13 @@ export default function App() {
                   </div>
                 )}
                 <div className="min-h-0 flex-1">
-                  {!state.relay.taskId ||
-                  state.relay.automationId === 'pending' ||
-                  state.recentAt === null ? (
-                    <Setup state={state} />
+                  {!state.workers.some(
+                    (worker) => worker.managed && !worker.archivedAt,
+                  ) &&
+                  (!state.relay.taskId ||
+                    state.relay.automationId === 'pending' ||
+                    state.recentAt === null) ? (
+                    <Setup state={state} onAddTeammate={() => setManage({})} />
                   ) : roots.length === 0 ? (
                     <Empty className="h-full">
                       <EmptyHeader>
@@ -920,8 +935,8 @@ export default function App() {
                         </EmptyMedia>
                         <EmptyTitle>Your room is ready.</EmptyTitle>
                         <EmptyDescription>
-                          Add a teammate from your Codex desktop tasks, then
-                          mention them here.
+                          Create a teammate here or add an existing Codex task,
+                          then mention them.
                         </EmptyDescription>
                       </EmptyHeader>
                       <Button
@@ -952,6 +967,7 @@ export default function App() {
                             <MessageRow
                               message={m}
                               state={state}
+                              onProfile={setProfileId}
                               onReply={() => setSelected(m.id)}
                             >
                               <Button
@@ -991,13 +1007,16 @@ export default function App() {
                     />
                   )}
                 </div>
-                {state.workers.length > 0 && (
+                {state.workers.some((worker) => !worker.archivedAt) && (
                   <Composer
                     key={channelId}
                     room={state}
                     channelId={channelId}
                     onSent={(message) => {
-                      if (channelIdRef.current === message.channelId)
+                      const currentChannel =
+                        getMentionNavigation()?.channelId ??
+                        channelIdRef.current
+                      if (currentChannel === message.channelId)
                         setSelected(message.rootId)
                     }}
                   />
@@ -1015,7 +1034,7 @@ export default function App() {
             <ResizablePanel
               id="conversation"
               panelRef={conversationPanel}
-              defaultSize="0%"
+              defaultSize={conversationOpen ? '42%' : '0%'}
               minSize="260px"
               maxSize="70%"
               collapsible
@@ -1054,35 +1073,28 @@ export default function App() {
                         d.status === 'pending' &&
                         d.error,
                     )
-                    .map((d) => (
-                      <div
-                        key={d.id}
-                        role="alert"
-                        className="flex flex-col gap-2 px-5 py-2"
-                      >
-                        <p className="text-sm text-destructive">
-                          @
-                          {
-                            state.workers.find((w) => w.id === d.workerId)
-                              ?.handle
-                          }{' '}
-                          · {d.error}
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            d.failure === 'approval'
-                              ? setManage({ id: d.workerId })
-                              : void window.crew.openTask(d.workerId)
+                    .map((d) => {
+                      const teammate = state.workers.find(
+                        (worker) => worker.id === d.workerId,
+                      )
+                      return teammate ? (
+                        <DeliveryError
+                          key={d.id}
+                          delivery={d}
+                          teammate={teammate}
+                          pendingCount={
+                            state.deliveries.filter(
+                              (item) =>
+                                item.rootId === d.rootId &&
+                                item.workerId === d.workerId &&
+                                item.status === 'pending',
+                            ).length
                           }
-                        >
-                          {d.failure === 'approval'
-                            ? 'Reapprove teammate'
-                            : 'Open original task'}
-                        </Button>
-                      </div>
-                    ))}
+                          onReapprove={() => setManage({ id: d.workerId })}
+                          onError={setError}
+                        />
+                      ) : null
+                    })}
                   <div className="min-h-0 flex-1">
                     <Transcript
                       key={root.id}
@@ -1091,6 +1103,7 @@ export default function App() {
                         <MessageRow
                           message={m}
                           state={state}
+                          onProfile={setProfileId}
                           showQuote
                           onReply={() =>
                             setReplyTargets({
@@ -1125,6 +1138,42 @@ export default function App() {
             open
             onClose={() => setManage(null)}
             initialId={manage.id}
+          />
+        )}
+        {profileWorker && (
+          <TeammateProfile
+            worker={profileWorker}
+            onClose={() => setProfileId(null)}
+            onEdit={() => {
+              setProfileId(null)
+              setManage({ id: profileWorker.id })
+            }}
+          />
+        )}
+        {state.managedApprovals?.[0] && (
+          <ManagedApprovalDialog
+            key={state.managedApprovals[0].id}
+            approval={state.managedApprovals[0]}
+            handle={
+              state.workers.find(
+                (worker) => worker.id === state.managedApprovals?.[0]?.workerId,
+              )?.handle ?? 'teammate'
+            }
+            onError={setError}
+          />
+        )}
+        {nextHire && (
+          <HireReview
+            key={nextHire.id}
+            request={nextHire}
+            requester={state.workers.find(
+              (worker) => worker.id === nextHire.requesterId,
+            )}
+            channelName={
+              state.channels.find((item) => item.id === nextHire.channelId)
+                ?.name ?? 'general'
+            }
+            count={pendingHires.length}
           />
         )}
       </SidebarProvider>
