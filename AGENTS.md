@@ -1,6 +1,6 @@
 # Crews team
 
-Read docs/architecture.md and docs/team-onboarding.md before assigned work. Inspect the actual checkout and git status. Preserve unrelated edits.
+Read docs/architecture.md before assigned work. Inspect the actual checkout and git status. Preserve unrelated edits.
 
 Use TypeScript and existing modules and UI components. Do not introduce useEffect, useMemo, or useCallback without explicit user permission. Keep changes small and comment non-obvious behavior. Discuss major architecture choices with the user.
 
